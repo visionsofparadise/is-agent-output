@@ -119,14 +119,16 @@ const runCli = (argv: ReadonlyArray<string>): void => {
 		return;
 	}
 
+	const detection = detectAgentOutput({ agents: parsed.options.agents });
+
+	process.exitCode = detection.isAgentOutput ? 0 : 1;
+
+	if (!parsed.options.json) {
+		return;
+	}
+
 	try {
-		const detection = detectAgentOutput({ agents: parsed.options.agents });
-
-		if (parsed.options.json) {
-			process.stdout.write(`${JSON.stringify(detection)}\n`);
-		}
-
-		process.exitCode = detection.isAgentOutput ? 0 : 1;
+		process.stdout.write(`${JSON.stringify(detection)}\n`);
 	} catch (error: unknown) {
 		process.stderr.write(`${messageOf(error)}\n`);
 		process.exitCode = 2;
