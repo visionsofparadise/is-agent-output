@@ -197,6 +197,24 @@ it("returns false with the error message when the provider throws", () => {
 	expect(detection.reason).toBe("peb read failed");
 });
 
+it("skips env from a shebang launcher and matches grok", () => {
+	const envPid = 1003;
+	const grokPid = 2003;
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(envPid),
+				processOf(envPid, grokPid, "env", "/usr/bin/env node"),
+				processOf(grokPid, 1, "grok", "grok.exe"),
+			],
+			sink: { kind: "pipe", serverPid: grokPid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("grok");
+});
+
 it("skips powershell and matches codex", () => {
 	const detection = detectAgentOutput({
 		provider: fakeProviderOf({
