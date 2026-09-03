@@ -31,8 +31,8 @@ interface Detection {
 `isAgentOutput` is true when all three hold:
 
 1. stdout is not a tty
-2. stdout is the same object the top ancestor shell inherited at spawn — no authored `|`, `>`, or `$( )` between this process and the harness
-3. the first non-shell ancestor matches a known harness, or a pattern you passed in
+2. stdout is the same object the top ancestor relay inherited at spawn — no authored `|`, `>`, or `$( )` between this process and the harness
+3. the first non-relay ancestor matches a known harness, or a pattern you passed in
 
 | label              | process name | command line                            |
 | ------------------ | ------------ | --------------------------------------- |
@@ -44,7 +44,7 @@ interface Detection {
 
 Anything else is `false`, and `reason` names the check that failed.
 
-The walk skips shells (`bash`, `sh`, `dash`, `zsh`, `cmd`, `powershell`, `pwsh`) and the `env` shebang launcher. Ancestry names the consumer; inherited environment markers do not.
+The walk skips relays — `bash`, `sh`, `dash`, `zsh`, `cmd`, `powershell`, `pwsh`, and the `env` shebang launcher — and the first ancestor that is not one is the consumer. Process names match a builtin exactly, lowercased and without extension, so a harness outside the table is an `--agent` entry rather than an accidental substring match. Ancestry names the consumer; inherited environment markers do not.
 
 ## CLI
 
