@@ -212,3 +212,144 @@ it("skips powershell and matches codex", () => {
 	expect(detection.isAgentOutput).toBe(true);
 	expect(detection.consumer?.label).toBe("codex");
 });
+
+it("returns true when a linux pipe identity matches the top shell fd 1", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, claudePid, "bash", "bash -c node"),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "pipe", serverPid: undefined, identity: "pipe:[123]" },
+			fd1: { [bashPid]: "pipe:[123]" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("returns false when a linux pipe identity does not match the top shell fd 1", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, claudePid, "bash", "bash -c node | cat"),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "pipe", serverPid: undefined, identity: "pipe:[123]" },
+			fd1: { [bashPid]: "pipe:[999]" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("authored or unresolvable pipe");
+});
+
+it("returns false when a linux pipe identity cannot be compared", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, claudePid, "bash", "bash -c node"),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "pipe", serverPid: undefined, identity: "pipe:[123]" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("authored or unresolvable pipe");
+});
+
+it("returns true for a direct spawn whose pipe is owned by the parent consumer", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [selfOn(claudePid), processOf(claudePid, 1, "claude", "claude.exe")],
+			sink: { kind: "pipe", serverPid: claudePid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("returns false when the ancestry walk exceeds its bound", () => {
+	const chain: Array<ProcessInfo> = [selfOn(9000)];
+	let parent = 9000;
+
+	for (let hop = 0; hop < 32; hop += 1) {
+		const next = parent + 1;
+
+		chain.push(processOf(parent, next, "bash", "bash"));
+		parent = next;
+	}
+
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: chain,
+			sink: { kind: "pipe", serverPid: claudePid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("process ancestry walk bound exceeded");
+});
+
+it("returns false for an unknown sink when the current process resolves", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [selfOn(claudePid), processOf(claudePid, 1, "claude", "claude.exe")],
+			sink: { kind: "unknown" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("unknown stdout sink");
+});
+
+it("returns false with unsupported platform when the provider cannot resolve self", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [],
+			sink: { kind: "unknown" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("unsupported platform");
+});
+
+it("returns false when a file sink's top shell command line is unreadable", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, claudePid, "bash"),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "file", path: "C:\\tmp\\out.txt" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("unresolvable top-shell command line");
+});
+
+it("keeps builtin labels when a user pattern also matches the consumer", () => {
+	const detection = detectAgentOutput({
+		agents: [{ label: "my-claude", name: /claude/ }],
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, claudePid, "bash", "bash -c node"),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "pipe", serverPid: claudePid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});

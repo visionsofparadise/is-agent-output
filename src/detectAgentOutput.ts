@@ -235,7 +235,7 @@ const detectWith = (provider: Provider, agents: ReadonlyArray<AgentPattern>): De
 export const detectAgentOutput = (options?: DetectAgentOutputOptions): Detection => {
 	try {
 		const provider = options?.provider ?? providerOf();
-		const agents = [...(options?.agents ?? []), ...builtinAgentPatterns];
+		const agents = [...builtinAgentPatterns, ...(options?.agents ?? [])];
 
 		return detectWith(provider, agents);
 	} catch (error: unknown) {
