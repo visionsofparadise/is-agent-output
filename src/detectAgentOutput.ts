@@ -4,9 +4,6 @@ import { providerOf } from "./utils/providerOf";
 import { shellNames } from "./utils/shellNames";
 import type { ProcessInfo, Provider, StdoutSink } from "./utils/Provider";
 
-export type { AgentPattern };
-export { builtinAgentPatterns };
-
 export interface Detection {
 	readonly isAgentOutput: boolean;
 	readonly consumer?: { readonly pid: number; readonly name: string; readonly label?: string };

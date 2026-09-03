@@ -1,5 +1,6 @@
-export { builtinAgentPatterns, detectAgentOutput } from "./detectAgentOutput";
-export type { AgentPattern, DetectAgentOutputOptions, Detection } from "./detectAgentOutput";
+export { detectAgentOutput } from "./detectAgentOutput";
+export type { DetectAgentOutputOptions, Detection } from "./detectAgentOutput";
+export { builtinAgentPatterns, type AgentPattern } from "./utils/builtinAgentPatterns";
 export { linuxProvider } from "./utils/linuxProvider";
 export type { ProcessInfo, Provider, StdoutSink } from "./utils/Provider";
 export { providerOf } from "./utils/providerOf";

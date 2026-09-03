@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { providerOf } from "./index";
+import { providerOf } from "./utils/providerOf";
 
 it("providerOf returns a provider for the current platform", () => {
 	const provider = providerOf();
