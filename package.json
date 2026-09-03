@@ -26,7 +26,7 @@
 		"fix": "concurrently -m 1 --group \"prettier --write .\" \"eslint . --fix --cache\" \"markdownlint-cli2 --fix \\\"**/*.md\\\"\" \"textlint --fix \\\"**/*.md\\\"\"",
 		"check": "concurrently --group \"prettier --check .\" \"eslint . --no-cache -f unix\" \"tsc --noEmit --pretty false\" \"markdownlint-cli2 \\\"**/*.md\\\"\" \"textlint -f compact \\\"**/*.md\\\"\" \"knip --no-progress\" \"jscpd .\" \"node tools.mjs run actionlint\"",
 		"unit": "vitest run unit",
-		"build": "tsup src/index.ts --format esm --dts --treeshake --clean"
+		"build": "tsup src/index.ts --format esm --dts --treeshake --clean --external koffi"
 	},
 	"devDependencies": {
 		"@commitlint/cli": "^21.2.2",
@@ -60,5 +60,8 @@
 	"allowScripts": {
 		"esbuild@0.27.7": true,
 		"unrs-resolver@1.12.2": true
+	},
+	"dependencies": {
+		"koffi": "3.2.0"
 	}
 }

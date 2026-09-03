@@ -1,0 +1,7 @@
+import type { ProcessInfo, Provider, StdoutSink } from "./Provider";
+
+export const unsupportedProvider: Provider = {
+	processInfoOf: (_pid: number): ProcessInfo | undefined => undefined,
+	stdoutSinkOf: (): StdoutSink => ({ kind: "unknown" }),
+	fd1IdentityOf: (_pid: number): string | undefined => undefined,
+};
