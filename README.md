@@ -2,8 +2,6 @@
 
 From inside a process, reports whether stdout is going unmediated to an AI agent harness.
 
-A wrapper around cat or git calls this to decide whether to fold, annotate, or leave the output alone.
-
 ## Install
 
 ```sh
@@ -34,7 +32,15 @@ interface Detection {
 
 1. stdout is not a tty
 2. stdout is the same object the top ancestor shell inherited at spawn — no authored `|`, `>`, or `$( )` between this process and the harness
-3. the first non-shell ancestor matches a known harness (`claude`, `codex`, `opencode`, `grok`, node-hosted `claude-code`) or a pattern you passed in
+3. the first non-shell ancestor matches a known harness, or a pattern you passed in
+
+| label              | process name | command line                            |
+| ------------------ | ------------ | --------------------------------------- |
+| `claude`           | `claude`     |                                         |
+| `codex`            | `codex`      |                                         |
+| `opencode`         | `opencode`   |                                         |
+| `grok`             | `grok`       |                                         |
+| `claude-code-node` | `node`       | `claude-code` or `@anthropic-ai/claude` |
 
 Anything else is `false`, and `reason` names the check that failed.
 
@@ -62,10 +68,6 @@ is-agent-output --agent 'my-harness:my-harness[:commandLineRegex]'
 ```
 
 `--agent` is repeatable. The value splits at its first two colons: label, name regex, optional command-line regex.
-
-## Names
-
-The answer is a UX switch, not a security control. Process names and command lines are unauthenticated. A binary named `grok`, or a `node` whose command line matches `claude-code`, counts as an agent if stdout is unmediated to it.
 
 ## Platforms
 
