@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { detectAgentOutput } from "./detectAgentOutput";
 import type { ProcessInfo, Provider, StdoutSink } from "./utils/Provider";
 
@@ -9,20 +9,23 @@ const powershellPid = 1002;
 const intermediaryPid = 3001;
 const extraPid = 4001;
 
-const processOf = (pid: number, ppid: number | undefined, name: string, commandLine?: string): ProcessInfo => ({
-	pid,
-	ppid,
-	name,
+interface FakeProcess {
+	readonly info: ProcessInfo;
+	readonly commandLine: string | undefined;
+}
+
+const processOf = (pid: number, ppid: number | undefined, name: string, commandLine?: string): FakeProcess => ({
+	info: { pid, ppid, name },
 	commandLine,
 });
 
 const fakeProviderOf = (args: {
-	readonly tree: readonly ProcessInfo[];
+	readonly tree: readonly FakeProcess[];
 	readonly sink: StdoutSink;
 	readonly fd1?: Readonly<Record<number, string | undefined>>;
 	readonly throws?: string;
 }): Provider => {
-	const byPid = new Map(args.tree.map((info) => [info.pid, info]));
+	const byPid = new Map(args.tree.map((process) => [process.info.pid, process]));
 
 	return {
 		processInfoOf: (pid: number): ProcessInfo | undefined => {
@@ -30,8 +33,9 @@ const fakeProviderOf = (args: {
 				throw new Error(args.throws);
 			}
 
-			return byPid.get(pid);
+			return byPid.get(pid)?.info;
 		},
+		commandLineOf: (pid: number): string | undefined => byPid.get(pid)?.commandLine,
 		stdoutSinkOf: (): StdoutSink => {
 			if (args.throws !== undefined) {
 				throw new Error(args.throws);
@@ -43,7 +47,7 @@ const fakeProviderOf = (args: {
 	};
 };
 
-const selfOn = (parentPid: number, commandLine = "node test"): ProcessInfo =>
+const selfOn = (parentPid: number, commandLine = "node test"): FakeProcess =>
 	processOf(process.pid, parentPid, "node", commandLine);
 
 it("returns false when stdout is a tty", () => {
@@ -87,10 +91,26 @@ it("returns false for an authored pipe owned by a walked bash", () => {
 	});
 
 	expect(detection.isAgentOutput).toBe(false);
-	expect(detection.reason).toBe("authored or unresolvable pipe");
+	expect(detection.reason).toBe("authored pipe owned by relay");
 });
 
-it("returns true for a file sink not named in the top shell command line", () => {
+it("returns false for a pipe owned by neither the consumer nor a relay", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, claudePid, "bash", "bash -c node"),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "pipe", serverPid: extraPid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("authored pipe");
+});
+
+it("returns true for a file sink not named in the top relay command line", () => {
 	const detection = detectAgentOutput({
 		provider: fakeProviderOf({
 			tree: [
@@ -106,7 +126,7 @@ it("returns true for a file sink not named in the top shell command line", () =>
 	expect(detection.consumer?.label).toBe("claude");
 });
 
-it("returns false for a file sink named in the top shell command line", () => {
+it("returns false for a file sink named in the top relay command line", () => {
 	const detection = detectAgentOutput({
 		provider: fakeProviderOf({
 			tree: [
@@ -155,6 +175,22 @@ it("returns true when the consumer is node hosting claude-code", () => {
 	expect(detection.consumer?.label).toBe("claude-code-node");
 });
 
+it("rejects a consumer whose name merely contains a builtin name", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, extraPid, "bash", "bash -c node"),
+				processOf(extraPid, 1, "claude-monitor", "claude-monitor.exe"),
+			],
+			sink: { kind: "pipe", serverPid: extraPid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("consumer claude-monitor matched no agent pattern");
+});
+
 it("matches a user-supplied agent pattern", () => {
 	const detection = detectAgentOutput({
 		agents: [{ label: "custom-harness", name: /custom-harness/ }],
@@ -182,6 +218,24 @@ it("returns false with a reason when the ancestry walk cycles", () => {
 
 	expect(detection.isAgentOutput).toBe(false);
 	expect(detection.reason).toBe("process ancestry walk cycle");
+});
+
+it("resolves the consumer despite a cycle above it", () => {
+	const grandparentPid = 5001;
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, claudePid, "bash", "bash -c node"),
+				processOf(claudePid, grandparentPid, "claude", "claude.exe"),
+				processOf(grandparentPid, claudePid, "explorer", "explorer.exe"),
+			],
+			sink: { kind: "pipe", serverPid: claudePid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
 });
 
 it("returns false with the error message when the provider throws", () => {
@@ -231,7 +285,7 @@ it("skips powershell and matches codex", () => {
 	expect(detection.consumer?.label).toBe("codex");
 });
 
-it("returns true when a linux pipe identity matches the top shell fd 1", () => {
+it("returns true when a linux pipe identity matches the top relay fd 1", () => {
 	const detection = detectAgentOutput({
 		provider: fakeProviderOf({
 			tree: [
@@ -248,7 +302,7 @@ it("returns true when a linux pipe identity matches the top shell fd 1", () => {
 	expect(detection.consumer?.label).toBe("claude");
 });
 
-it("returns false when a linux pipe identity does not match the top shell fd 1", () => {
+it("returns false when a linux pipe identity does not match the top relay fd 1", () => {
 	const detection = detectAgentOutput({
 		provider: fakeProviderOf({
 			tree: [
@@ -262,7 +316,7 @@ it("returns false when a linux pipe identity does not match the top shell fd 1",
 	});
 
 	expect(detection.isAgentOutput).toBe(false);
-	expect(detection.reason).toBe("authored or unresolvable pipe");
+	expect(detection.reason).toBe("authored pipe");
 });
 
 it("returns false when a linux pipe identity cannot be compared", () => {
@@ -278,7 +332,7 @@ it("returns false when a linux pipe identity cannot be compared", () => {
 	});
 
 	expect(detection.isAgentOutput).toBe(false);
-	expect(detection.reason).toBe("authored or unresolvable pipe");
+	expect(detection.reason).toBe("pipe owner unresolved");
 });
 
 it("returns true for a direct spawn whose pipe is owned by the parent consumer", () => {
@@ -294,10 +348,10 @@ it("returns true for a direct spawn whose pipe is owned by the parent consumer",
 });
 
 it("returns false when the ancestry walk exceeds its bound", () => {
-	const chain: Array<ProcessInfo> = [selfOn(9000)];
+	const chain: Array<FakeProcess> = [selfOn(9000)];
 	let parent = 9000;
 
-	for (let hop = 0; hop < 32; hop += 1) {
+	for (let hop = 0; hop < 40; hop += 1) {
 		const next = parent + 1;
 
 		chain.push(processOf(parent, next, "bash", "bash"));
@@ -339,7 +393,7 @@ it("returns false with unsupported platform when the provider cannot resolve sel
 	expect(detection.reason).toBe("unsupported platform");
 });
 
-it("returns false when a file sink's top shell command line is unreadable", () => {
+it("returns false when a file sink's top relay command line is unreadable", () => {
 	const detection = detectAgentOutput({
 		provider: fakeProviderOf({
 			tree: [
@@ -352,7 +406,7 @@ it("returns false when a file sink's top shell command line is unreadable", () =
 	});
 
 	expect(detection.isAgentOutput).toBe(false);
-	expect(detection.reason).toBe("unresolvable top-shell command line");
+	expect(detection.reason).toBe("unresolvable top-relay command line");
 });
 
 it("keeps builtin labels when a user pattern also matches the consumer", () => {
@@ -370,4 +424,36 @@ it("keeps builtin labels when a user pattern also matches the consumer", () => {
 
 	expect(detection.isAgentOutput).toBe(true);
 	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("reads no command line when the walk and the matching pattern do not need one", () => {
+	const provider = fakeProviderOf({
+		tree: [
+			selfOn(bashPid),
+			processOf(bashPid, claudePid, "bash", "bash -c node"),
+			processOf(claudePid, 1, "claude", "claude.exe"),
+		],
+		sink: { kind: "pipe", serverPid: claudePid, identity: undefined },
+	});
+	const commandLineOf = vi.fn(provider.commandLineOf);
+	const detection = detectAgentOutput({ provider: { ...provider, commandLineOf } });
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(commandLineOf).not.toHaveBeenCalled();
+});
+
+it("reads the consumer command line once for a pattern that discriminates on it", () => {
+	const provider = fakeProviderOf({
+		tree: [
+			selfOn(bashPid),
+			processOf(bashPid, extraPid, "bash", "bash -c node"),
+			processOf(extraPid, 1, "node", "node C:\\npm\\claude-code\\cli.js"),
+		],
+		sink: { kind: "pipe", serverPid: extraPid, identity: undefined },
+	});
+	const commandLineOf = vi.fn(provider.commandLineOf);
+	const detection = detectAgentOutput({ provider: { ...provider, commandLineOf } });
+
+	expect(detection.consumer?.label).toBe("claude-code-node");
+	expect(commandLineOf).toHaveBeenCalledExactlyOnceWith(extraPid);
 });

@@ -1,4 +1,4 @@
-export const shellNames: ReadonlySet<string> = new Set([
+export const relayNames: ReadonlySet<string> = new Set([
 	"bash",
 	"sh",
 	"dash",

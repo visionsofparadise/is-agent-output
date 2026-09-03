@@ -3,6 +3,8 @@ import type { ProcessInfo, Provider, StdoutSink } from "./Provider";
 
 const procPathOf = (pid: number, leaf: string): string => `/proc/${pid}/${leaf}`;
 
+const isPid = (pid: number): boolean => Number.isInteger(pid) && pid > 0;
+
 const parentPidOf = (stat: string): number | undefined => {
 	const closeParen = stat.lastIndexOf(")");
 
@@ -23,21 +25,33 @@ const parentPidOf = (stat: string): number | undefined => {
 };
 
 const processInfoOf = (pid: number): ProcessInfo | undefined => {
-	if (!Number.isInteger(pid) || pid <= 0) {
+	if (!isPid(pid)) {
 		return undefined;
 	}
 
 	try {
 		const comm = readFileSync(procPathOf(pid, "comm"), "utf8").trim().toLowerCase();
-		const cmdline = readFileSync(procPathOf(pid, "cmdline"), "utf8").replaceAll("\0", " ").trim();
 		const stat = readFileSync(procPathOf(pid, "stat"), "utf8");
 
 		return {
 			pid,
 			ppid: parentPidOf(stat),
 			name: comm,
-			commandLine: cmdline.length > 0 ? cmdline : undefined,
 		};
+	} catch {
+		return undefined;
+	}
+};
+
+const commandLineOf = (pid: number): string | undefined => {
+	if (!isPid(pid)) {
+		return undefined;
+	}
+
+	try {
+		const cmdline = readFileSync(procPathOf(pid, "cmdline"), "utf8").replaceAll("\0", " ").trim();
+
+		return cmdline.length > 0 ? cmdline : undefined;
 	} catch {
 		return undefined;
 	}
@@ -66,7 +80,7 @@ const stdoutSinkOf = (): StdoutSink => {
 };
 
 const fd1IdentityOf = (pid: number): string | undefined => {
-	if (!Number.isInteger(pid) || pid <= 0) {
+	if (!isPid(pid)) {
 		return undefined;
 	}
 
@@ -79,6 +93,7 @@ const fd1IdentityOf = (pid: number): string | undefined => {
 
 export const linuxProvider: Provider = {
 	processInfoOf,
+	commandLineOf,
 	stdoutSinkOf,
 	fd1IdentityOf,
 };

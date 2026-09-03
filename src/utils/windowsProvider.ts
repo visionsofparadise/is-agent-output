@@ -1,5 +1,6 @@
-import koffi from "koffi";
+import { createRequire } from "node:module";
 import type { ProcessInfo, Provider, StdoutSink } from "./Provider";
+import type koffiModule from "koffi";
 
 const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 const PROCESS_VM_READ = 0x0010;
@@ -29,6 +30,7 @@ interface ProcessBasicInformationResult {
 
 interface WindowsApi {
 	readonly processInfoOf: (pid: number) => ProcessInfo | undefined;
+	readonly commandLineOf: (pid: number) => string | undefined;
 	readonly stdoutSinkOf: () => StdoutSink;
 }
 
@@ -53,6 +55,8 @@ type GetStdHandleFn = (stdHandle: number) => unknown;
 type GetFileTypeFn = (handle: unknown) => number;
 type GetNamedPipeServerProcessIdFn = (pipe: unknown, serverPid: [number]) => boolean;
 type GetFinalPathNameByHandleWFn = (handle: unknown, pathBuffer: Buffer, characters: number, flags: number) => number;
+
+const isPid = (pid: number): boolean => Number.isInteger(pid) && pid > 0;
 
 const numberOf = (value: unknown): number | undefined => {
 	if (typeof value === "number" && Number.isFinite(value)) {
@@ -91,6 +95,7 @@ const pathWithoutDevicePrefix = (path: string): string => {
 const is64Bit = process.arch !== "ia32";
 
 const loadWindowsApi = (): WindowsApi => {
+	const koffi = createRequire(import.meta.url)("koffi") as typeof koffiModule;
 	const kernel32 = koffi.load("kernel32.dll");
 	const ntdll = koffi.load("ntdll.dll");
 
@@ -132,6 +137,8 @@ const loadWindowsApi = (): WindowsApi => {
 		"DWORD __stdcall GetFinalPathNameByHandleW(HANDLE hFile, _Out_ WCHAR *lpszFilePath, DWORD cchFilePath, DWORD dwFlags)",
 	) as GetFinalPathNameByHandleWFn;
 
+	const pathBuffer = Buffer.alloc(IMAGE_PATH_CHARACTERS * 2);
+
 	const openProcessOf = (pid: number): unknown => {
 		const withRead = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, false, pid);
 
@@ -143,7 +150,6 @@ const loadWindowsApi = (): WindowsApi => {
 	};
 
 	const imagePathOf = (handle: unknown): string | undefined => {
-		const pathBuffer = Buffer.alloc(IMAGE_PATH_CHARACTERS * 2);
 		const size: [number] = [IMAGE_PATH_CHARACTERS];
 
 		if (!QueryFullProcessImageNameW(handle, 0, pathBuffer, size)) {
@@ -159,7 +165,7 @@ const loadWindowsApi = (): WindowsApi => {
 		return pathBuffer.toString("utf16le", 0, characterCount * 2);
 	};
 
-	const parentPidOf = (handle: unknown): { ppid: number | undefined; peb: unknown } => {
+	const basicInformationOf = (handle: unknown): { ppid: number | undefined; peb: unknown } => {
 		const information: ProcessBasicInformationResult = {
 			ExitStatus: 0,
 			PebBaseAddress: null,
@@ -187,7 +193,7 @@ const loadWindowsApi = (): WindowsApi => {
 		};
 	};
 
-	const commandLineOf = (handle: unknown, peb: unknown): string | undefined => {
+	const commandLineOfPeb = (handle: unknown, peb: unknown): string | undefined => {
 		if (peb === null || peb === undefined) {
 			return undefined;
 		}
@@ -239,7 +245,7 @@ const loadWindowsApi = (): WindowsApi => {
 	};
 
 	const processInfoOf = (pid: number): ProcessInfo | undefined => {
-		if (!Number.isInteger(pid) || pid <= 0) {
+		if (!isPid(pid)) {
 			return undefined;
 		}
 
@@ -256,14 +262,29 @@ const loadWindowsApi = (): WindowsApi => {
 				return undefined;
 			}
 
-			const { ppid, peb } = parentPidOf(handle);
-
 			return {
 				pid,
-				ppid,
+				ppid: basicInformationOf(handle).ppid,
 				name: imageNameOf(imagePath),
-				commandLine: commandLineOf(handle, peb),
 			};
+		} finally {
+			CloseHandle(handle);
+		}
+	};
+
+	const commandLineOf = (pid: number): string | undefined => {
+		if (!isPid(pid)) {
+			return undefined;
+		}
+
+		const handle = openProcessOf(pid);
+
+		if (!handle) {
+			return undefined;
+		}
+
+		try {
+			return commandLineOfPeb(handle, basicInformationOf(handle).peb);
 		} finally {
 			CloseHandle(handle);
 		}
@@ -295,7 +316,6 @@ const loadWindowsApi = (): WindowsApi => {
 		}
 
 		if (fileType === FILE_TYPE_DISK) {
-			const pathBuffer = Buffer.alloc(IMAGE_PATH_CHARACTERS * 2);
 			const characterCount = GetFinalPathNameByHandleW(stdoutHandle, pathBuffer, IMAGE_PATH_CHARACTERS, 0);
 
 			if (characterCount === 0) {
@@ -310,7 +330,7 @@ const loadWindowsApi = (): WindowsApi => {
 		return { kind: "unknown" };
 	};
 
-	return { processInfoOf, stdoutSinkOf };
+	return { processInfoOf, commandLineOf, stdoutSinkOf };
 };
 
 let cachedApi: WindowsApi | undefined;
@@ -340,6 +360,13 @@ export const windowsProvider: Provider = {
 	processInfoOf: (pid: number): ProcessInfo | undefined => {
 		try {
 			return windowsApiOf()?.processInfoOf(pid);
+		} catch {
+			return undefined;
+		}
+	},
+	commandLineOf: (pid: number): string | undefined => {
+		try {
+			return windowsApiOf()?.commandLineOf(pid);
 		} catch {
 			return undefined;
 		}

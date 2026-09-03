@@ -5,13 +5,13 @@ export interface AgentPattern {
 }
 
 export const builtinAgentPatterns: ReadonlyArray<AgentPattern> = [
-	{ label: "claude", name: /claude(\.exe)?/ },
-	{ label: "codex", name: /codex(\.exe)?/ },
-	{ label: "opencode", name: /opencode(\.exe)?/ },
-	{ label: "grok", name: /grok(\.exe)?/ },
+	{ label: "claude", name: /^claude$/ },
+	{ label: "codex", name: /^codex$/ },
+	{ label: "opencode", name: /^opencode$/ },
+	{ label: "grok", name: /^grok$/ },
 	{
 		label: "claude-code-node",
-		name: /node(\.exe)?/,
+		name: /^node$/,
 		commandLine: /claude-code|@anthropic-ai[\\/]claude/,
 	},
 ];

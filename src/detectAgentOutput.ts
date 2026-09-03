@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { builtinAgentPatterns, type AgentPattern } from "./utils/builtinAgentPatterns";
 import { providerOf } from "./utils/providerOf";
-import { shellNames } from "./utils/shellNames";
+import { relayNames } from "./utils/relayNames";
 import type { ProcessInfo, Provider, StdoutSink } from "./utils/Provider";
 
 export interface Detection {
@@ -15,6 +15,8 @@ export interface DetectAgentOutputOptions {
 	readonly provider?: Provider;
 }
 
+type MediatableSink = Extract<StdoutSink, { readonly kind: "pipe" | "file" }>;
+
 const WALK_BOUND = 32;
 
 const messageOf = (error: unknown): string => {
@@ -26,35 +28,36 @@ const messageOf = (error: unknown): string => {
 };
 
 const matchesRegex = (pattern: RegExp, value: string): boolean => {
-	const flags = pattern.flags.replaceAll("g", "");
-	const copy = flags.length > 0 ? new RegExp(pattern.source, flags) : new RegExp(pattern.source);
+	if (!pattern.global && !pattern.sticky) {
+		return pattern.test(value);
+	}
 
-	return copy.test(value);
+	return new RegExp(pattern.source, pattern.flags.replaceAll("g", "").replaceAll("y", "")).test(value);
 };
 
-const isShell = (name: string): boolean => shellNames.has(name);
+const isRelay = (name: string): boolean => relayNames.has(name);
 
 const basenameOf = (path: string): string => basename(path.replaceAll("\\", "/"));
 
 interface Ancestry {
 	readonly consumer: ProcessInfo | undefined;
-	readonly topShell: ProcessInfo | undefined;
-	readonly shells: ReadonlyArray<ProcessInfo>;
+	readonly topRelay: ProcessInfo | undefined;
+	readonly relays: ReadonlyArray<ProcessInfo>;
 	readonly failure: string | undefined;
 }
 
 const ancestryOf = (provider: Provider, startPid: number): Ancestry => {
-	const seen = new Set<number>();
-	const walked: Array<ProcessInfo> = [];
-	let pid: number | undefined = startPid;
+	const seen = new Set<number>([startPid]);
+	const relays: Array<ProcessInfo> = [];
+	let pid = provider.processInfoOf(startPid)?.ppid;
 
 	for (let hop = 0; hop < WALK_BOUND; hop += 1) {
 		if (pid === undefined) {
-			break;
+			return { consumer: undefined, topRelay: undefined, relays, failure: "no consumer resolvable" };
 		}
 
 		if (seen.has(pid)) {
-			return { consumer: undefined, topShell: undefined, shells: [], failure: "process ancestry walk cycle" };
+			return { consumer: undefined, topRelay: undefined, relays, failure: "process ancestry walk cycle" };
 		}
 
 		seen.add(pid);
@@ -62,52 +65,40 @@ const ancestryOf = (provider: Provider, startPid: number): Ancestry => {
 		const info = provider.processInfoOf(pid);
 
 		if (info === undefined) {
-			break;
+			return { consumer: undefined, topRelay: undefined, relays, failure: "no consumer resolvable" };
 		}
 
-		walked.push(info);
+		if (!isRelay(info.name)) {
+			return { consumer: info, topRelay: relays.at(-1), relays, failure: undefined };
+		}
+
+		relays.push(info);
 		pid = info.ppid;
 	}
 
-	if (pid !== undefined && !seen.has(pid) && walked.length === WALK_BOUND) {
-		return {
-			consumer: undefined,
-			topShell: undefined,
-			shells: [],
-			failure: "process ancestry walk bound exceeded",
-		};
-	}
-
-	const shells: Array<ProcessInfo> = [];
-	let consumer: ProcessInfo | undefined;
-
-	for (const ancestor of walked.slice(1)) {
-		if (isShell(ancestor.name)) {
-			shells.push(ancestor);
-
-			continue;
-		}
-
-		consumer = ancestor;
-
-		break;
-	}
-
-	if (consumer === undefined) {
-		return { consumer: undefined, topShell: undefined, shells, failure: "no consumer resolvable" };
-	}
-
-	return { consumer, topShell: shells.at(-1), shells, failure: undefined };
+	return { consumer: undefined, topRelay: undefined, relays, failure: "process ancestry walk bound exceeded" };
 };
 
-const agentLabelOf = (consumer: ProcessInfo, agents: ReadonlyArray<AgentPattern>): string | undefined => {
+const agentLabelOf = (
+	consumer: ProcessInfo,
+	agents: ReadonlyArray<AgentPattern>,
+	commandLineOf: () => string | undefined,
+): string | undefined => {
+	let commandLine: string | undefined;
+	let commandLineRead = false;
+
 	for (const pattern of agents) {
 		if (!matchesRegex(pattern.name, consumer.name)) {
 			continue;
 		}
 
 		if (pattern.commandLine !== undefined) {
-			if (consumer.commandLine === undefined || !matchesRegex(pattern.commandLine, consumer.commandLine)) {
+			if (!commandLineRead) {
+				commandLine = commandLineOf();
+				commandLineRead = true;
+			}
+
+			if (commandLine === undefined || !matchesRegex(pattern.commandLine, commandLine)) {
 				continue;
 			}
 		}
@@ -119,64 +110,58 @@ const agentLabelOf = (consumer: ProcessInfo, agents: ReadonlyArray<AgentPattern>
 };
 
 const sinkIsUnmediated = (
-	sink: StdoutSink,
+	sink: MediatableSink,
+	consumer: ProcessInfo,
 	ancestry: Ancestry,
 	provider: Provider,
 ): { readonly unmediated: boolean; readonly reason: string } => {
-	const { consumer, topShell, shells } = ancestry;
-
-	if (consumer === undefined) {
-		return { unmediated: false, reason: ancestry.failure ?? "no consumer resolvable" };
-	}
+	const { topRelay, relays } = ancestry;
 
 	if (sink.kind === "pipe") {
 		if (sink.identity !== undefined) {
-			const comparePid = topShell?.pid ?? consumer.pid;
-			const inherited = provider.fd1IdentityOf(comparePid);
+			const inherited = provider.fd1IdentityOf(topRelay?.pid ?? consumer.pid);
 
 			if (inherited === undefined) {
-				return { unmediated: false, reason: "authored or unresolvable pipe" };
+				return { unmediated: false, reason: "pipe owner unresolved" };
 			}
 
 			if (inherited === sink.identity) {
 				return { unmediated: true, reason: "" };
 			}
 
-			return { unmediated: false, reason: "authored or unresolvable pipe" };
+			return { unmediated: false, reason: "authored pipe" };
 		}
 
 		if (sink.serverPid === undefined) {
-			return { unmediated: false, reason: "authored or unresolvable pipe" };
+			return { unmediated: false, reason: "pipe owner unresolved" };
 		}
 
 		if (sink.serverPid === consumer.pid) {
 			return { unmediated: true, reason: "" };
 		}
 
-		if (shells.some((shell) => shell.pid === sink.serverPid)) {
-			return { unmediated: false, reason: "authored or unresolvable pipe" };
+		if (relays.some((relay) => relay.pid === sink.serverPid)) {
+			return { unmediated: false, reason: "authored pipe owned by relay" };
 		}
 
-		return { unmediated: false, reason: "authored or unresolvable pipe" };
+		return { unmediated: false, reason: "authored pipe" };
 	}
 
-	if (sink.kind === "file") {
-		if (topShell === undefined) {
-			return { unmediated: true, reason: "" };
-		}
-
-		if (topShell.commandLine === undefined) {
-			return { unmediated: false, reason: "unresolvable top-shell command line" };
-		}
-
-		if (topShell.commandLine.includes(basenameOf(sink.path))) {
-			return { unmediated: false, reason: "authored redirect" };
-		}
-
+	if (topRelay === undefined) {
 		return { unmediated: true, reason: "" };
 	}
 
-	return { unmediated: false, reason: "unknown stdout sink" };
+	const commandLine = provider.commandLineOf(topRelay.pid);
+
+	if (commandLine === undefined) {
+		return { unmediated: false, reason: "unresolvable top-relay command line" };
+	}
+
+	if (commandLine.includes(basenameOf(sink.path))) {
+		return { unmediated: false, reason: "authored redirect" };
+	}
+
+	return { unmediated: true, reason: "" };
 };
 
 const detectWith = (provider: Provider, agents: ReadonlyArray<AgentPattern>): Detection => {
@@ -186,45 +171,42 @@ const detectWith = (provider: Provider, agents: ReadonlyArray<AgentPattern>): De
 		return { isAgentOutput: false, reason: "stdout is a tty" };
 	}
 
-	const self = provider.processInfoOf(process.pid);
-
-	if (self === undefined && sink.kind === "unknown") {
-		return { isAgentOutput: false, reason: "unsupported platform" };
-	}
-
 	if (sink.kind === "unknown") {
-		return { isAgentOutput: false, reason: "unknown stdout sink" };
+		const supported = provider.processInfoOf(process.pid) !== undefined;
+
+		return { isAgentOutput: false, reason: supported ? "unknown stdout sink" : "unsupported platform" };
 	}
 
 	const ancestry = ancestryOf(provider, process.pid);
+	const consumer = ancestry.consumer;
 
-	if (ancestry.consumer === undefined) {
+	if (consumer === undefined) {
 		return { isAgentOutput: false, reason: ancestry.failure ?? "no consumer resolvable" };
 	}
 
-	const mediation = sinkIsUnmediated(sink, ancestry, provider);
+	const mediation = sinkIsUnmediated(sink, consumer, ancestry, provider);
 
 	if (!mediation.unmediated) {
 		return {
 			isAgentOutput: false,
-			consumer: { pid: ancestry.consumer.pid, name: ancestry.consumer.name },
+			consumer: { pid: consumer.pid, name: consumer.name },
 			reason: mediation.reason,
 		};
 	}
 
-	const label = agentLabelOf(ancestry.consumer, agents);
+	const label = agentLabelOf(consumer, agents, () => provider.commandLineOf(consumer.pid));
 
 	if (label === undefined) {
 		return {
 			isAgentOutput: false,
-			consumer: { pid: ancestry.consumer.pid, name: ancestry.consumer.name },
-			reason: `consumer ${ancestry.consumer.name} matched no agent pattern`,
+			consumer: { pid: consumer.pid, name: consumer.name },
+			reason: `consumer ${consumer.name} matched no agent pattern`,
 		};
 	}
 
 	return {
 		isAgentOutput: true,
-		consumer: { pid: ancestry.consumer.pid, name: ancestry.consumer.name, label },
+		consumer: { pid: consumer.pid, name: consumer.name, label },
 		reason: `unmediated output to ${label}`,
 	};
 };

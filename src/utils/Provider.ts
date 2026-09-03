@@ -2,7 +2,6 @@ export interface ProcessInfo {
 	readonly pid: number;
 	readonly ppid: number | undefined;
 	readonly name: string;
-	readonly commandLine: string | undefined;
 }
 
 export type StdoutSink =
@@ -13,6 +12,7 @@ export type StdoutSink =
 
 export interface Provider {
 	readonly processInfoOf: (pid: number) => ProcessInfo | undefined;
+	readonly commandLineOf: (pid: number) => string | undefined;
 	readonly stdoutSinkOf: () => StdoutSink;
 	readonly fd1IdentityOf: (pid: number) => string | undefined;
 }

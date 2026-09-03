@@ -24,3 +24,11 @@ itWindows("stdoutSinkOf returns a non-unknown kind under the test runner", () =>
 itWindows("processInfoOf(-1) returns undefined", () => {
 	expect(windowsProvider.processInfoOf(-1)).toBeUndefined();
 });
+
+itWindows("commandLineOf resolves the current process command line", () => {
+	expect(windowsProvider.commandLineOf(process.pid)).toContain("node");
+});
+
+itWindows("commandLineOf(-1) returns undefined", () => {
+	expect(windowsProvider.commandLineOf(-1)).toBeUndefined();
+});

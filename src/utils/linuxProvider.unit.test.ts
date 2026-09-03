@@ -24,3 +24,11 @@ itLinux("stdoutSinkOf returns a non-unknown kind under the test runner", () => {
 itLinux("processInfoOf(-1) returns undefined", () => {
 	expect(linuxProvider.processInfoOf(-1)).toBeUndefined();
 });
+
+itLinux("commandLineOf resolves the current process command line", () => {
+	expect(linuxProvider.commandLineOf(process.pid)).toContain("node");
+});
+
+itLinux("commandLineOf(-1) returns undefined", () => {
+	expect(linuxProvider.commandLineOf(-1)).toBeUndefined();
+});

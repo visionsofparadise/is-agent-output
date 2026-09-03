@@ -14,5 +14,6 @@ it("providerOf returns a provider for the current platform", () => {
 	}
 
 	expect(provider.processInfoOf(process.pid)).toBeUndefined();
+	expect(provider.commandLineOf(process.pid)).toBeUndefined();
 	expect(provider.stdoutSinkOf()).toEqual({ kind: "unknown" });
 });
