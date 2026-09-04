@@ -30,10 +30,10 @@ const quoted = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`;
 const nodeCommandOf = (scriptPath: string, suffix = ""): string =>
 	`${quoted(posixPathOf(process.execPath))} ${quoted(posixPathOf(scriptPath))} --agent ${agentFlag}${suffix}`;
 
-const exitCodeOf = (bashCommand: string, shell = "bash"): Promise<{ code: number; stdout: string }> =>
+const exitCodeOf = (bashCommand: string, shell = "bash", cwd = repoRoot): Promise<{ code: number; stdout: string }> =>
 	new Promise((resolve, reject) => {
 		const child = spawn(shell, ["-c", bashCommand], {
-			cwd: repoRoot,
+			cwd,
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		let stdout = "";
@@ -222,4 +222,61 @@ itShell(
 		}
 	},
 	spawnTimeoutMs,
+);
+
+const packageRunnerDirectoryOf = async (): Promise<string> => {
+	const directory = await mkdtemp(join(tmpdir(), "is-agent-output-run-"));
+
+	await writeFile(
+		join(directory, "package.json"),
+		`${JSON.stringify(
+			{
+				name: "is-agent-output-runner-probe",
+				version: "0.0.0",
+				private: true,
+				scripts: { probe: `node "${posixPathOf(cliPath)}" --agent ${agentFlag}` },
+			},
+			undefined,
+			2,
+		)}\n`,
+		"utf8",
+	);
+
+	return directory;
+};
+
+itBash(
+	"returns exit 0 when npm run relays the harness capture to the cli",
+	async () => {
+		ensureBuild();
+
+		const directory = await packageRunnerDirectoryOf();
+
+		try {
+			const result = await exitCodeOf("npm run --silent probe", "bash", directory);
+
+			expect(result.code).toBe(0);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	},
+	installTimeoutMs,
+);
+
+itBash(
+	"returns exit 1 when the same npm run is piped to cat",
+	async () => {
+		ensureBuild();
+
+		const directory = await packageRunnerDirectoryOf();
+
+		try {
+			const result = await exitCodeOf("set -o pipefail; npm run --silent probe | cat", "bash", directory);
+
+			expect(result.code).toBe(1);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	},
+	installTimeoutMs,
 );

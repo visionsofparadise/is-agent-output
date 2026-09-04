@@ -991,3 +991,127 @@ it("names bubblewrap as the ancestry ending inside a pid namespace", () => {
 	expect(detection.isAgentOutput).toBe(false);
 	expect(detection.reason).toBe("ancestry ends at bwrap with no consumer");
 });
+
+const gitShimBashPid = 7001;
+const gitInnerBashPid = 7002;
+const gitSubshellBashPid = 7003;
+const claudeCliPid = 7011;
+const claudeDesktopPid = 7012;
+const opencodeShellPid = 7021;
+const opencodeScriptPid = 7022;
+const cursorSandboxPid = 7031;
+const cursorAgentPid = 7032;
+const claudeTaskSinkPath = String.raw`C:\Users\mttcv\AppData\Local\Temp\claude\C--Users-mttcv-planner\dff98d13\tasks\b1s9tpo9j.output`;
+const gitShimImage = String.raw`"C:\Program Files\Git\bin\bash.exe"`;
+const gitInnerImage = String.raw`"C:\Program Files\Git\bin\..\usr\bin\bash.exe"`;
+const snapshotPrologue = String.raw`source /c/Users/mttcv/.claude/shell-snapshots/snapshot-bash-1788549486912-xe5uda.sh 2>/dev/null || true && export TEMP='C:\Users\mttcv\AppData\Local\Temp' && shopt -u extglob 2>/dev/null || true && { \builtin unalias -- 'unsetenv'; } >/dev/null 2>&1 || true`;
+const snapshotEpilogue = String.raw`&& pwd -P >| /c/Users/mttcv/AppData/Local/Temp/claude-fb0d-cwd`;
+
+const threeBashCommandLineOf = (image: string, evaluated: string): string =>
+	`${image} -c "${snapshotPrologue} && eval '${evaluated}' ${snapshotEpilogue}"`;
+
+const threeBashTreeOf = (evaluated: string): readonly FakeProcess[] => [
+	selfOn(gitSubshellBashPid),
+	processOf(gitSubshellBashPid, gitInnerBashPid, "bash", threeBashCommandLineOf(gitInnerImage, evaluated)),
+	processOf(gitInnerBashPid, gitShimBashPid, "bash", threeBashCommandLineOf(gitInnerImage, evaluated)),
+	processOf(gitShimBashPid, claudeCliPid, "bash", threeBashCommandLineOf(gitShimImage, evaluated)),
+	processOf(
+		claudeCliPid,
+		1,
+		"claude",
+		String.raw`C:\Users\mttcv\AppData\Roaming\Claude\claude-code\2.1.260\claude.exe`,
+	),
+];
+
+it("returns true for a windows three-bash chain whose shim command line omits the sink", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: threeBashTreeOf("node dist/cli.js --json"),
+			sink: { kind: "file", path: claudeTaskSinkPath },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("returns false for a windows three-bash chain whose shim command line names the sink", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: threeBashTreeOf("node dist/cli.js --json > out.txt"),
+			sink: { kind: "file", path: String.raw`C:\Users\mttcv\projects\code\is-agent-output\out.txt` },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("authored redirect");
+});
+
+it("keeps an opencode signature on a relay command line from naming a harness", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(opencodeShellPid),
+				processOf(opencodeShellPid, opencodeScriptPid, "bash", "opencode -l -c node script.mjs"),
+				processOf(opencodeScriptPid, 1, "node", "node script.mjs"),
+			],
+			sink: { kind: "stream", serverPid: undefined, identity: "pipe:[774]" },
+			fd1: { [opencodeShellPid]: "pipe:[774]" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("consumer node matched no agent pattern");
+});
+
+it("resolves the nearer claude when claude desktop hosts the bundled cli", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, claudeCliPid, "bash", "bash -c node dist/cli.js"),
+				processOf(
+					claudeCliPid,
+					claudeDesktopPid,
+					"claude",
+					String.raw`C:\Users\mttcv\AppData\Roaming\Claude\claude-code\2.1.260\claude.exe --output-format stream-json`,
+				),
+				processOf(
+					claudeDesktopPid,
+					1,
+					"claude",
+					String.raw`"C:\Program Files\WindowsApps\Claude_1.46388.3.0_x64__pzs8sxrjxfjjc\app\Claude.exe" `,
+				),
+			],
+			sink: { kind: "file", path: claudeTaskSinkPath },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.pid).toBe(claudeCliPid);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("returns false for an excluded harness above an admitted sandbox relay", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, cursorSandboxPid, "bash", "bash -c node dist/cli.js"),
+				processOf(cursorSandboxPid, cursorAgentPid, "cursorsandbox", "cursorsandbox bash -c node dist/cli.js"),
+				processOf(
+					cursorAgentPid,
+					1,
+					"node",
+					"node /home/mttcv/.local/share/cursor-agent/versions/2026.02.10/index.js",
+				),
+			],
+			sink: { kind: "stream", serverPid: undefined, identity: "pipe:[775]" },
+			fd1: { [cursorSandboxPid]: "pipe:[775]" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.consumer?.name).toBe("node");
+	expect(detection.reason).toBe("consumer node matched no agent pattern");
+});
