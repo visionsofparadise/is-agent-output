@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { parseCliArguments, usage } from "./cli";
+import { parseCliArguments, usage } from "./utils/parseCliArguments";
 
 it("recognizes --json", () => {
 	const parsed = parseCliArguments(["--json"]);

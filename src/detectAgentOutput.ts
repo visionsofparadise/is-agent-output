@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import { builtinAgentPatterns, type AgentPattern } from "./utils/builtinAgentPatterns";
+import { messageOf } from "./utils/messageOf";
 import { providerOf } from "./utils/providerOf";
 import { relayNames } from "./utils/relayNames";
 import type { ProcessInfo, Provider, StdoutSink } from "./utils/Provider";
@@ -18,14 +19,6 @@ export interface DetectAgentOutputOptions {
 type MediatableSink = Extract<StdoutSink, { readonly kind: "stream" | "file" }>;
 
 const WALK_BOUND = 32;
-
-const messageOf = (error: unknown): string => {
-	if (error instanceof Error) {
-		return error.message;
-	}
-
-	return String(error);
-};
 
 const matchesRegex = (pattern: RegExp, value: string): boolean => {
 	if (!pattern.global && !pattern.sticky) {
