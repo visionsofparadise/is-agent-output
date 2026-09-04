@@ -31,8 +31,10 @@ interface Detection {
 `isAgentOutput` is true when all three hold:
 
 1. stdout is not a tty
-2. stdout is the same object the top ancestor relay inherited at spawn — no authored `|`, `>`, or `$( )` between this process and the harness
-3. the first non-relay ancestor matches a known harness, or a pattern you passed in
+2. the first non-relay ancestor matches a known harness, or a pattern you passed in
+3. that sink reached this process unmediated — a stream is weighed against what the outermost relay inherited or against who owns the pipe, a file against every surviving relay's command line and, on Linux, against the outermost relay's fd 1
+
+They are evaluated in that order, so a `reason` from a later check means the earlier ones held, and a `reason` from an earlier one says nothing about the rest.
 
 A harness is in the table when the command's stdout provably reaches the model alone: the harness holds the only handle, and the bytes reach a human only after the harness has chosen to render them. Rows for macOS-only builds are carried for when a macOS provider lands, and stay unreachable until then. Names are the compared form — on Windows the image basename, lowercased and without its extension; on Linux `/proc/<pid>/comm`, which a process can rewrite and which truncates at 15 characters.
 
@@ -89,9 +91,9 @@ A harness is in the table when the command's stdout provably reaches the model a
 | `mini-swe-agent-windows`       | `/^python$/`                                | `/[\\/]mini(-swe-agent)?(\.exe)?$/`                                     |
 | `gptme-windows`                | `/^python$/`                                | `/[\\/]gptme(\.exe)?$/`                                                 |
 
-Anything else is `false`, and `reason` names the check that failed.
+Anything else is `false`. `reason` names the check that failed where one did, and otherwise says why no check could run — an unsupported platform, an unrecognised sink, an ancestry walk that ended, or the message of an error the provider raised.
 
-Every builtin harness regex is anchored at both ends, so a harness outside the table is an `--agent` entry rather than an accidental substring match. Ancestry names the consumer; inherited environment markers do not.
+Every builtin name regex is anchored at both ends, so a process name outside the table is an `--agent` entry rather than an accidental substring match. Command-line regexes are deliberately unanchored signatures, so a row carrying one matches on a substring and is only reached once the name has already matched. Ancestry names the consumer; inherited environment markers do not.
 
 ### Relays
 
@@ -173,7 +175,7 @@ A `--relay` entry always attests a file sink, since the flag carries no place to
 - The WSL boundary hides the harness. A Windows harness invoking `wsl -e …`, or a WSL harness invoking a Windows `.exe`, leaves no ancestry path across the boundary.
 - A harness that mirrors a private pipe to its own terminal is indistinguishable from one that does not. Nothing observable from inside the child separates them, so such harnesses are excluded by the table rather than at runtime; Amazon Q Developer CLI and Aider on Windows are the measured cases.
 - A pty-capturing harness answers false at the tty check. Gemini CLI's interactive default, Copilot CLI inside VS Code, and Codex under `tty: true` all reach the model alone through a pty, and `isatty(1)` is true, so the answer is a safe false.
-- A redirect an agent writes inside a script file, applies with `exec >`, or hides behind `eval` or a command substitution never reaches a relay's command line and is invisible to the file branch. A relay command line naming a script file it does not source therefore fails the sink closed with `unreadable script in a relay command line`. A sourced script is exempt so that a harness which sources setup still resolves: Claude Code prefixes every command with `source <shell snapshot>.sh`, and treating that as unreadable would answer false for the harness this package exists to recognise. A redirect that never appears in a relay's command line at all — inside a sourced script, behind `eval`, or aimed at a symlink whose name differs from the file it resolves to — is therefore still invisible, and that residual is accepted.
+- A redirect an agent writes inside a script file, applies with `exec >`, or hides behind `eval "$CMD"` never reaches a relay's command line and is invisible to the file branch. A relay command line naming a script file it does not source therefore fails the sink closed with `unreadable script in a relay command line`. A sourced script is exempt so that a harness which sources setup still resolves: Claude Code prefixes every command with `source <shell snapshot>.sh`, and treating that as unreadable would answer false for the harness this package exists to recognise. A redirect that never appears in a relay's command line at all — inside a sourced script, behind `eval "$CMD"`, or aimed at a symlink whose name differs from the file it resolves to — is therefore still invisible, and that residual is accepted. A target written as a command substitution or a variable is caught rather than missed, by `unresolvable redirect target in a relay command line`, and on Linux a forking shell leaves its own fd 1 unredirected, so the residual is a Windows and dash-family boundary.
 
 ## Platforms
 
