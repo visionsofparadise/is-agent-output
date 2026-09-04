@@ -842,3 +842,113 @@ it("reports the pattern miss ahead of an authored stream", () => {
 	expect(detection.isAgentOutput).toBe(false);
 	expect(detection.reason).toBe("consumer node matched no agent pattern");
 });
+
+it("matches the codex command runner that owns the windows pipe", () => {
+	const runnerPid = 2004;
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(powershellPid),
+				processOf(powershellPid, runnerPid, "powershell", "powershell.exe -Command ..."),
+				processOf(runnerPid, 1, "codex-command-runner-0.144.6", "codex-command-runner-0.144.6.exe"),
+			],
+			sink: { kind: "stream", serverPid: runnerPid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("codex-command-runner");
+});
+
+it("matches a node consumer carrying a claude code command line", () => {
+	const nodePid = 2005;
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, nodePid, "bash", "bash -c node"),
+				processOf(nodePid, 1, "node", "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js"),
+			],
+			sink: { kind: "stream", serverPid: nodePid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude-code-node");
+});
+
+it("matches the codex linux sandbox fallback frame", () => {
+	const sandboxPid = 2006;
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, sandboxPid, "bash", "bash -c node"),
+				processOf(sandboxPid, 1, "codex-linux-san", "codex-linux-sandbox"),
+			],
+			sink: { kind: "stream", serverPid: undefined, identity: "pipe:[771]" },
+			fd1: { [bashPid]: "pipe:[771]" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("codex-linux-sandbox-fallback");
+});
+
+it("skips bubblewrap and compares the sink with its fd 1", () => {
+	const bwrapPid = 1005;
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, bwrapPid, "bash", "bash -c node"),
+				processOf(bwrapPid, claudePid, "bwrap", "bwrap --dev-bind / / bash -c node"),
+				processOf(claudePid, 1, "claude", "claude"),
+			],
+			sink: { kind: "stream", serverPid: undefined, identity: "pipe:[772]" },
+			fd1: { [bwrapPid]: "pipe:[772]" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("takes the bash adjacent to the consumer as the top relay across timeout", () => {
+	const innerBashPid = 1006;
+	const timeoutPid = 1007;
+	const outerBashPid = 1008;
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(innerBashPid),
+				processOf(innerBashPid, timeoutPid, "bash", "bash -c node"),
+				processOf(timeoutPid, outerBashPid, "timeout", "timeout 60 bash -c node"),
+				processOf(outerBashPid, claudePid, "bash", "bash -c timeout 60 bash -c node"),
+				processOf(claudePid, 1, "claude", "claude"),
+			],
+			sink: { kind: "stream", serverPid: undefined, identity: "pipe:[773]" },
+			fd1: { [innerBashPid]: "pipe:[999]", [outerBashPid]: "pipe:[773]" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("names bubblewrap as the ancestry ending inside a pid namespace", () => {
+	const bwrapPid = 1009;
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, bwrapPid, "bash", "bash -c node"),
+				processOf(bwrapPid, undefined, "bwrap", "bwrap --unshare-pid bash -c node"),
+			],
+			sink: { kind: "stream", serverPid: claudePid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("ancestry ends at bwrap with no consumer");
+});
