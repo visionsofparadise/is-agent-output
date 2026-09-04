@@ -234,7 +234,7 @@ const packageRunnerDirectoryOf = async (): Promise<string> => {
 				name: "is-agent-output-runner-probe",
 				version: "0.0.0",
 				private: true,
-				scripts: { probe: `node "${posixPathOf(cliPath)}" --agent ${agentFlag}` },
+				scripts: { probe: `node "${posixPathOf(cliPath)}" --agent ${agentFlag} --json` },
 			},
 			undefined,
 			2,
@@ -256,6 +256,7 @@ itBash(
 			const result = await exitCodeOf("npm run --silent probe", "bash", directory);
 
 			expect(result.code).toBe(0);
+			expect(detectionOf(result.stdout).isAgentOutput).toBe(true);
 		} finally {
 			await rm(directory, { recursive: true, force: true });
 		}
@@ -274,6 +275,11 @@ itBash(
 			const result = await exitCodeOf("set -o pipefail; npm run --silent probe | cat", "bash", directory);
 
 			expect(result.code).toBe(1);
+
+			const detection = detectionOf(result.stdout);
+
+			expect(detection.isAgentOutput).toBe(false);
+			expect(detection.reason).toMatch(/^authored stream/);
 		} finally {
 			await rm(directory, { recursive: true, force: true });
 		}

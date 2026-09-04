@@ -1047,6 +1047,23 @@ it("returns false for a windows three-bash chain whose shim command line names t
 	expect(detection.reason).toBe("authored redirect");
 });
 
+it("refuses a harness signature on a consumer whose name matches no pattern", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, extraPid, "bash", "bash -c node"),
+				processOf(extraPid, 1, "wrapper", "wrapper /usr/lib/node_modules/@google/gemini-cli/index.js"),
+			],
+			sink: { kind: "stream", serverPid: undefined, identity: "pipe:[881]" },
+			fd1: { [bashPid]: "pipe:[881]" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("consumer wrapper matched no agent pattern");
+});
+
 it("keeps an opencode signature on a relay command line from naming a harness", () => {
 	const detection = detectAgentOutput({
 		provider: fakeProviderOf({
