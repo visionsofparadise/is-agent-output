@@ -118,6 +118,52 @@ itBash(
 const detectionOf = (json: string): { isAgentOutput: boolean; reason: string } =>
 	JSON.parse(json.trim()) as { isAgentOutput: boolean; reason: string };
 
+const installTimeoutMs = 300_000;
+
+const shellArgument = (value: string): string => `"${posixPathOf(value)}"`;
+
+const npmRun = (args: ReadonlyArray<string>, cwd: string): { status: number | null; stdout: string } => {
+	const result = spawnSync("npm", [...args], { cwd, encoding: "utf8", shell: true });
+
+	return { status: result.status, stdout: result.stdout ?? "" };
+};
+
+itBash(
+	"answers through the bin shim npm installs",
+	async () => {
+		ensureBuild();
+
+		const directory = await mkdtemp(join(tmpdir(), "is-agent-output-bin-"));
+
+		try {
+			const packed = npmRun(["pack", "--ignore-scripts", "--pack-destination", shellArgument(directory)], repoRoot);
+
+			expect(packed.status).toBe(0);
+
+			const tarball = join(directory, packed.stdout.trim().split("\n").at(-1) ?? "");
+
+			expect(existsSync(tarball)).toBe(true);
+			expect(npmRun(["init", "-y"], directory).status).toBe(0);
+			expect(
+				npmRun(["install", "--ignore-scripts", "--no-audit", "--no-fund", shellArgument(tarball)], directory)
+					.status,
+			).toBe(0);
+
+			const binPath = join(directory, "node_modules", ".bin", "is-agent-output");
+
+			expect(existsSync(binPath)).toBe(true);
+
+			const result = await exitCodeOf(`${quoted(posixPathOf(binPath))} --agent ${agentFlag} --json`);
+
+			expect(detectionOf(result.stdout).isAgentOutput).toBe(true);
+			expect(result.code).toBe(0);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	},
+	installTimeoutMs,
+);
+
 const itShell = shells.length > 0 ? it.each(shells) : it.skip.each(["no shell available"]);
 
 itShell(
