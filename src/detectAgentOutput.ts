@@ -78,12 +78,13 @@ interface RelayFrame {
 	readonly attests: boolean;
 }
 
-interface Ancestry {
-	readonly consumer: ProcessInfo | undefined;
+interface ResolvedAncestry {
+	readonly consumer: ProcessInfo;
 	readonly topRelay: ProcessInfo | undefined;
 	readonly relays: ReadonlyArray<RelayFrame>;
-	readonly failure: string | undefined;
 }
+
+type Ancestry = ResolvedAncestry | { readonly failure: string };
 
 const ancestryOf = (
 	provider: Provider,
@@ -97,16 +98,11 @@ const ancestryOf = (
 
 	for (let hop = 0; hop < WALK_BOUND; hop += 1) {
 		if (pid === undefined) {
-			return { consumer: undefined, topRelay: undefined, relays: frames, failure: "no consumer resolvable" };
+			return { failure: `ancestry ends at ${frames.at(-1)?.info.name ?? "self"} with no consumer` };
 		}
 
 		if (seen.has(pid)) {
-			return {
-				consumer: undefined,
-				topRelay: undefined,
-				relays: frames,
-				failure: "process ancestry walk cycle",
-			};
+			return { failure: "process ancestry walk cycle" };
 		}
 
 		seen.add(pid);
@@ -114,25 +110,20 @@ const ancestryOf = (
 		const info = provider.processInfoOf(pid);
 
 		if (info === undefined) {
-			return { consumer: undefined, topRelay: undefined, relays: frames, failure: "no consumer resolvable" };
+			return { failure: `ancestor ${pid} unresolvable` };
 		}
 
 		const relay = relayMatches(info, relays, commandLineOf);
 
 		if (relay === undefined) {
-			return { consumer: info, topRelay: frames.at(-1)?.info, relays: frames, failure: undefined };
+			return { consumer: info, topRelay: frames.at(-1)?.info, relays: frames };
 		}
 
 		frames.push({ info, attests: relay.attests ?? true });
 		pid = info.ppid;
 	}
 
-	return {
-		consumer: undefined,
-		topRelay: undefined,
-		relays: frames,
-		failure: "process ancestry walk bound exceeded",
-	};
+	return { failure: "process ancestry walk bound exceeded" };
 };
 
 const agentLabelOf = (
@@ -168,7 +159,7 @@ const agentLabelOf = (
 const sinkIsUnmediated = (
 	sink: MediatableSink,
 	consumer: ProcessInfo,
-	ancestry: Ancestry,
+	ancestry: ResolvedAncestry,
 	provider: Provider,
 	commandLineOf: CommandLineOf,
 ): { readonly unmediated: boolean; readonly reason: string } => {
@@ -266,22 +257,12 @@ const detectWith = (
 
 	const commandLineOf = memoizedCommandLineOf(provider);
 	const ancestry = ancestryOf(provider, process.pid, relays, commandLineOf);
+
+	if ("failure" in ancestry) {
+		return { isAgentOutput: false, reason: ancestry.failure };
+	}
+
 	const consumer = ancestry.consumer;
-
-	if (consumer === undefined) {
-		return { isAgentOutput: false, reason: ancestry.failure ?? "no consumer resolvable" };
-	}
-
-	const mediation = sinkIsUnmediated(sink, consumer, ancestry, provider, commandLineOf);
-
-	if (!mediation.unmediated) {
-		return {
-			isAgentOutput: false,
-			consumer: { pid: consumer.pid, name: consumer.name },
-			reason: mediation.reason,
-		};
-	}
-
 	const label = agentLabelOf(consumer, agents, () => commandLineOf(consumer.pid));
 
 	if (label === undefined) {
@@ -289,6 +270,16 @@ const detectWith = (
 			isAgentOutput: false,
 			consumer: { pid: consumer.pid, name: consumer.name },
 			reason: `consumer ${consumer.name} matched no agent pattern`,
+		};
+	}
+
+	const mediation = sinkIsUnmediated(sink, consumer, ancestry, provider, commandLineOf);
+
+	if (!mediation.unmediated) {
+		return {
+			isAgentOutput: false,
+			consumer: { pid: consumer.pid, name: consumer.name, label },
+			reason: mediation.reason,
 		};
 	}
 

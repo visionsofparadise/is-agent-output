@@ -107,6 +107,7 @@ it("returns false for an authored stream owned by a walked bash", () => {
 	});
 
 	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.consumer?.label).toBe("claude");
 	expect(detection.reason).toBe("authored stream owned by relay");
 });
 
@@ -744,4 +745,45 @@ it("returns false when an attesting relay fd 1 cannot be read", () => {
 
 	expect(detection.isAgentOutput).toBe(false);
 	expect(detection.reason).toBe("unreadable relay fd 1");
+});
+
+it("names the ancestry ending when the outermost relay has no parent", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [selfOn(bashPid), processOf(bashPid, undefined, "bash", "bash -c node cli.js")],
+			sink: { kind: "stream", serverPid: claudePid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("ancestry ends at bash with no consumer");
+});
+
+it("names the ancestor that could not be resolved", () => {
+	const deadPid = 999;
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [selfOn(bashPid), processOf(bashPid, deadPid, "bash", "bash -c node cli.js")],
+			sink: { kind: "stream", serverPid: claudePid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe(`ancestor ${deadPid} unresolvable`);
+});
+
+it("reports the pattern miss ahead of an authored stream", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(intermediaryPid),
+				processOf(intermediaryPid, claudePid, "node", "node intermediary.mjs"),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "stream", serverPid: extraPid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("consumer node matched no agent pattern");
 });
