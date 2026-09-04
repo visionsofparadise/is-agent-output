@@ -23,7 +23,7 @@ type CommandLineOf = (pid: number) => string | undefined;
 
 const WALK_BOUND = 32;
 
-const HIDDEN_REDIRECT_TARGET = /(?<![=<>-])>>?\s*["']?[^"'\s]*[$`%]/;
+const HIDDEN_REDIRECT_TARGET = /(?<![=<>-])\d?>>?[|&]?\s*["']?[^"'\s]*[$`%!]/;
 
 const matchesRegex = (pattern: RegExp, value: string): boolean => {
 	if (!pattern.global && !pattern.sticky) {
@@ -211,19 +211,25 @@ const sinkIsUnmediated = (
 		return { unmediated: false, reason: "file sink attested by a runner" };
 	}
 
-	const commandLines = relays.map((relay) => commandLineOf(relay.info.pid));
+	const commandLines: Array<string> = [];
 
-	if (commandLines.some((commandLine) => commandLine === undefined)) {
-		return { unmediated: false, reason: "unresolvable relay command line" };
+	for (const relay of relays) {
+		const commandLine = commandLineOf(relay.info.pid);
+
+		if (commandLine === undefined) {
+			return { unmediated: false, reason: "unresolvable relay command line" };
+		}
+
+		commandLines.push(commandLine);
 	}
 
 	const sinkBasename = basenameOf(sink.path);
 
-	if (commandLines.some((commandLine) => commandLine?.includes(sinkBasename) === true)) {
+	if (commandLines.some((commandLine) => commandLine.includes(sinkBasename))) {
 		return { unmediated: false, reason: "authored redirect" };
 	}
 
-	if (commandLines.some((commandLine) => commandLine !== undefined && HIDDEN_REDIRECT_TARGET.test(commandLine))) {
+	if (commandLines.some((commandLine) => HIDDEN_REDIRECT_TARGET.test(commandLine))) {
 		return { unmediated: false, reason: "unresolvable redirect target in a relay command line" };
 	}
 

@@ -764,6 +764,27 @@ it("returns false for a redirect operator whose target a relay command line hide
 	expect(detection.reason).toBe("unresolvable redirect target in a relay command line");
 });
 
+it.each([
+	["noclobber override", 'sh -c node cli.js >| "$OUT"'],
+	["delayed expansion", 'cmd /d /s /c "node cli.js > !OUT!"'],
+	["duplicated descriptor", 'sh -c node cli.js >& "$OUT"'],
+])("returns false for a %s hiding the redirect target", (_label: string, commandLine: string) => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(shPid),
+				processOf(shPid, claudePid, "sh", commandLine),
+				processOf(claudePid, 1, "claude", "claude"),
+			],
+			sink: { kind: "file", path: "/tmp/out.txt" },
+			fd1: { [process.pid]: "pipe:[1]", [shPid]: "/tmp/out.txt" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("unresolvable redirect target in a relay command line");
+});
+
 it("returns false when an attesting relay fd 1 cannot be read", () => {
 	const detection = detectAgentOutput({
 		provider: fakeProviderOf({
