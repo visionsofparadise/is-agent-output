@@ -36,6 +36,10 @@ itLinux("stdoutSinkOf classifies whatever its own fd 1 is", () => {
 	expect(sink).toEqual({ kind: "stream", serverPid: undefined, identity: link });
 });
 
+itLinux("processInfoOf reports no parent for the pid at the top of the namespace", () => {
+	expect(linuxProvider.processInfoOf(1)?.ppid).toBeUndefined();
+});
+
 itLinux("processInfoOf(-1) returns undefined", () => {
 	expect(linuxProvider.processInfoOf(-1)).toBeUndefined();
 });

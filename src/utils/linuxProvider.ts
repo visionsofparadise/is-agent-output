@@ -21,7 +21,7 @@ const parentPidOf = (stat: string): number | undefined => {
 
 	const ppid = Number(parentField);
 
-	return Number.isFinite(ppid) ? ppid : undefined;
+	return isPid(ppid) ? ppid : undefined;
 };
 
 const processInfoOf = (pid: number): ProcessInfo | undefined => {
