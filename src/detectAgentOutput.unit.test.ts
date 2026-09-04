@@ -824,6 +824,22 @@ it("returns true for a file sink under a relay that sources a harness snapshot",
 	expect(detection.consumer?.label).toBe("claude");
 });
 
+it("returns false for a windows redirect whose target differs from the sink only in case", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, claudePid, "bash", String.raw`bash -c "node cli.js > C:\tmp\ZEBRA.TXT"`),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "file", path: String.raw`C:\tmp\zebra.txt` },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("authored redirect");
+});
+
 it("returns false when an attesting relay fd 1 cannot be read", () => {
 	const detection = detectAgentOutput({
 		provider: fakeProviderOf({

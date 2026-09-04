@@ -88,7 +88,6 @@ interface RelayFrame {
 
 interface ResolvedAncestry {
 	readonly consumer: ProcessInfo;
-	readonly topRelay: ProcessInfo | undefined;
 	readonly relays: ReadonlyArray<RelayFrame>;
 }
 
@@ -124,7 +123,7 @@ const ancestryOf = (
 		const relay = relayMatches(info, relays, commandLineOf);
 
 		if (relay === undefined) {
-			return { consumer: info, topRelay: frames.at(-1)?.info, relays: frames };
+			return { consumer: info, relays: frames };
 		}
 
 		frames.push({ info, attests: relay.attests ?? true });
@@ -166,20 +165,20 @@ const agentLabelOf = (
 
 const sinkIsUnmediated = (
 	sink: MediatableSink,
-	consumer: ProcessInfo,
 	ancestry: ResolvedAncestry,
 	provider: Provider,
 	commandLineOf: CommandLineOf,
 ): { readonly unmediated: boolean; readonly reason: string } => {
-	const { topRelay, relays } = ancestry;
+	const { consumer, relays } = ancestry;
+	const outermost = relays.at(-1);
 
 	if (sink.kind === "stream") {
 		if (sink.identity !== undefined) {
-			if (topRelay === undefined) {
+			if (outermost === undefined) {
 				return { unmediated: true, reason: "" };
 			}
 
-			const inherited = provider.fd1IdentityOf(topRelay.pid);
+			const inherited = provider.fd1IdentityOf(outermost.info.pid);
 
 			if (inherited === undefined) {
 				return { unmediated: false, reason: "stream owner unresolved" };
@@ -207,8 +206,6 @@ const sinkIsUnmediated = (
 		return { unmediated: false, reason: "authored stream" };
 	}
 
-	const outermost = relays.at(-1);
-
 	if (outermost === undefined) {
 		return { unmediated: false, reason: "file sink with no surviving relay" };
 	}
@@ -229,9 +226,9 @@ const sinkIsUnmediated = (
 		commandLines.push(commandLine);
 	}
 
-	const sinkBasename = basenameOf(sink.path);
+	const sinkBasename = basenameOf(sink.path).toLowerCase();
 
-	if (commandLines.some((commandLine) => commandLine.includes(sinkBasename))) {
+	if (commandLines.some((commandLine) => commandLine.toLowerCase().includes(sinkBasename))) {
 		return { unmediated: false, reason: "authored redirect" };
 	}
 
@@ -295,7 +292,7 @@ const detectWith = (
 		};
 	}
 
-	const mediation = sinkIsUnmediated(sink, consumer, ancestry, provider, commandLineOf);
+	const mediation = sinkIsUnmediated(sink, ancestry, provider, commandLineOf);
 
 	if (!mediation.unmediated) {
 		return {
