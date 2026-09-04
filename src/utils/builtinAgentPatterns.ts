@@ -5,7 +5,7 @@ export interface AgentPattern {
 }
 
 export const builtinAgentPatterns: ReadonlyArray<AgentPattern> = [
-	{ label: "claude", name: /^claude$/ },
+	{ label: "claude", name: /^claude(\.exe)?$/ },
 	{ label: "codex", name: /^codex$/ },
 	{ label: "codex-command-runner", name: /^codex-command-runner(-\d+\.\d+\.\d+)?$/ },
 	{ label: "codex-linux-sandbox-fallback", name: /^codex-linux-san(dbox)?$/ },
