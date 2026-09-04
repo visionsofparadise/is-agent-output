@@ -13,9 +13,15 @@ const fixtureDistPath = join(repoRoot, "dist", "intermediary.integration.fixture
 const agentFlag = "test:node:vitest";
 const spawnTimeoutMs = 60_000;
 
-const bashProbe = spawnSync("bash", ["-c", "echo ok"], { encoding: "utf8" });
-const hasBash = bashProbe.status === 0 && (bashProbe.stdout ?? "").includes("ok");
+const runsShell = (shell: string): boolean => {
+	const probe = spawnSync(shell, ["-c", "echo ok"], { encoding: "utf8" });
+
+	return probe.status === 0 && (probe.stdout ?? "").includes("ok");
+};
+
+const hasBash = runsShell("bash");
 const itBash = hasBash ? it : it.skip;
+const shells = ["bash", "sh", "dash", "zsh"].filter(runsShell);
 
 const posixPathOf = (path: string): string => path.replaceAll("\\", "/");
 
@@ -24,9 +30,9 @@ const quoted = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`;
 const nodeCommandOf = (scriptPath: string, suffix = ""): string =>
 	`${quoted(posixPathOf(process.execPath))} ${quoted(posixPathOf(scriptPath))} --agent ${agentFlag}${suffix}`;
 
-const exitCodeOf = (bashCommand: string): Promise<{ code: number; stdout: string }> =>
+const exitCodeOf = (bashCommand: string, shell = "bash"): Promise<{ code: number; stdout: string }> =>
 	new Promise((resolve, reject) => {
-		const child = spawn("bash", ["-c", bashCommand], {
+		const child = spawn(shell, ["-c", bashCommand], {
 			cwd: repoRoot,
 			stdio: ["ignore", "pipe", "pipe"],
 		});
@@ -105,6 +111,40 @@ itBash(
 		);
 
 		expect(result.stdout.trim()).toBe("1");
+	},
+	spawnTimeoutMs,
+);
+
+const detectionOf = (json: string): { isAgentOutput: boolean; reason: string } =>
+	JSON.parse(json.trim()) as { isAgentOutput: boolean; reason: string };
+
+const itShell = shells.length > 0 ? it.each(shells) : it.skip.each(["no shell available"]);
+
+itShell(
+	"%s reports capture, redirect, and pipe correctly",
+	async (shell: string) => {
+		ensureBuild();
+
+		const directory = await mkdtemp(join(tmpdir(), "is-agent-output-"));
+		const outputPath = join(directory, "out.txt");
+
+		try {
+			const captured = await exitCodeOf(nodeCommandOf(cliPath, " --json"), shell);
+
+			expect(detectionOf(captured.stdout).isAgentOutput).toBe(true);
+
+			await exitCodeOf(`${nodeCommandOf(cliPath, " --json")} > ${quoted(posixPathOf(outputPath))}`, shell);
+
+			const redirected = detectionOf(await readFile(outputPath, "utf8"));
+
+			expect(redirected.isAgentOutput).toBe(false);
+
+			const piped = await exitCodeOf(`${nodeCommandOf(cliPath, " --json")} | cat`, shell);
+
+			expect(detectionOf(piped.stdout).isAgentOutput).toBe(false);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
 	},
 	spawnTimeoutMs,
 );
