@@ -730,6 +730,40 @@ it("returns true for a windows file sink named on no relay command line", () => 
 	expect(detection.consumer?.label).toBe("claude");
 });
 
+it("returns false for a dash-family redirect the attesting relay applied to its own fd 1", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(shPid),
+				processOf(shPid, claudePid, "sh", "sh -c node cli.js > /tmp/out.txt"),
+				processOf(claudePid, 1, "claude", "claude"),
+			],
+			sink: { kind: "file", path: "/tmp/out.txt" },
+			fd1: { [process.pid]: "pipe:[1]", [shPid]: "/tmp/out.txt" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("authored redirect");
+});
+
+it("returns false for a redirect operator whose target a relay command line hides", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(shPid),
+				processOf(shPid, claudePid, "sh", 'sh -c node cli.js > "$OUT"'),
+				processOf(claudePid, 1, "claude", "claude"),
+			],
+			sink: { kind: "file", path: "/tmp/out.txt" },
+			fd1: { [process.pid]: "pipe:[1]", [shPid]: "/tmp/out.txt" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("unresolvable redirect target in a relay command line");
+});
+
 it("returns false when an attesting relay fd 1 cannot be read", () => {
 	const detection = detectAgentOutput({
 		provider: fakeProviderOf({

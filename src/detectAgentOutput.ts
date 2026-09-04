@@ -23,6 +23,8 @@ type CommandLineOf = (pid: number) => string | undefined;
 
 const WALK_BOUND = 32;
 
+const HIDDEN_REDIRECT_TARGET = /(?<![=<>-])>>?\s*["']?[^"'\s]*[$`%]/;
+
 const matchesRegex = (pattern: RegExp, value: string): boolean => {
 	if (!pattern.global && !pattern.sticky) {
 		return pattern.test(value);
@@ -209,20 +211,6 @@ const sinkIsUnmediated = (
 		return { unmediated: false, reason: "file sink attested by a runner" };
 	}
 
-	if (provider.fd1IdentityOf(process.pid) !== undefined) {
-		const inherited = provider.fd1IdentityOf(outermost.info.pid);
-
-		if (inherited === undefined) {
-			return { unmediated: false, reason: "unreadable relay fd 1" };
-		}
-
-		if (inherited === sink.path) {
-			return { unmediated: true, reason: "" };
-		}
-
-		return { unmediated: false, reason: "authored redirect" };
-	}
-
 	const commandLines = relays.map((relay) => commandLineOf(relay.info.pid));
 
 	if (commandLines.some((commandLine) => commandLine === undefined)) {
@@ -232,6 +220,24 @@ const sinkIsUnmediated = (
 	const sinkBasename = basenameOf(sink.path);
 
 	if (commandLines.some((commandLine) => commandLine?.includes(sinkBasename) === true)) {
+		return { unmediated: false, reason: "authored redirect" };
+	}
+
+	if (commandLines.some((commandLine) => commandLine !== undefined && HIDDEN_REDIRECT_TARGET.test(commandLine))) {
+		return { unmediated: false, reason: "unresolvable redirect target in a relay command line" };
+	}
+
+	if (provider.fd1IdentityOf(process.pid) === undefined) {
+		return { unmediated: true, reason: "" };
+	}
+
+	const inherited = provider.fd1IdentityOf(outermost.info.pid);
+
+	if (inherited === undefined) {
+		return { unmediated: false, reason: "unreadable relay fd 1" };
+	}
+
+	if (inherited !== sink.path) {
 		return { unmediated: false, reason: "authored redirect" };
 	}
 
