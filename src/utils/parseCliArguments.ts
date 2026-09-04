@@ -1,11 +1,14 @@
 import { messageOf } from "./messageOf";
 import type { AgentPattern } from "./builtinAgentPatterns";
+import type { RelayPattern } from "./builtinRelayPatterns";
 
-export const usage = "Usage: is-agent-output [--json] [--agent <label>:<nameRegex>[:<commandLineRegex>]]...";
+export const usage =
+	"Usage: is-agent-output [--json] [--agent <label>:<nameRegex>[:<commandLineRegex>]]... [--relay <nameRegex>[:<commandLineRegex>]]...";
 
 interface ParsedCliOptions {
 	readonly json: boolean;
 	readonly agents: ReadonlyArray<AgentPattern>;
+	readonly relays: ReadonlyArray<RelayPattern>;
 }
 
 export type CliParseResult =
@@ -59,9 +62,33 @@ const agentPatternOf = (value: string): AgentPattern | string => {
 	return { label, name, commandLine };
 };
 
+const relayPatternOf = (value: string): RelayPattern | string => {
+	const firstColon = value.indexOf(":");
+	const nameSource = firstColon < 0 ? value : value.slice(0, firstColon);
+	const commandLineSource = firstColon < 0 ? undefined : value.slice(firstColon + 1);
+	const name = regexOf(nameSource, "name");
+
+	if (typeof name === "string") {
+		return name;
+	}
+
+	if (commandLineSource === undefined) {
+		return { name };
+	}
+
+	const commandLine = regexOf(commandLineSource, "commandLine");
+
+	if (typeof commandLine === "string") {
+		return commandLine;
+	}
+
+	return { name, commandLine };
+};
+
 export const parseCliArguments = (argv: ReadonlyArray<string>): CliParseResult => {
 	let json = false;
 	const agents: Array<AgentPattern> = [];
+	const relays: Array<RelayPattern> = [];
 
 	for (let index = 0; index < argv.length; index += 1) {
 		const argument = argv[index];
@@ -91,8 +118,27 @@ export const parseCliArguments = (argv: ReadonlyArray<string>): CliParseResult =
 			continue;
 		}
 
+		if (argument === "--relay") {
+			const value = argv[index + 1];
+
+			if (value === undefined || value.length === 0 || value.startsWith("--")) {
+				return { ok: false, usage: `${usage}\n--relay requires a value` };
+			}
+
+			const pattern = relayPatternOf(value);
+
+			if (typeof pattern === "string") {
+				return { ok: false, usage: `${usage}\n${pattern}` };
+			}
+
+			relays.push(pattern);
+			index += 1;
+
+			continue;
+		}
+
 		return { ok: false, usage: `${usage}\nunknown flag: ${argument ?? ""}` };
 	}
 
-	return { ok: true, options: { json, agents } };
+	return { ok: true, options: { json, agents, relays } };
 };

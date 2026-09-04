@@ -4,7 +4,7 @@ import { parseCliArguments, usage } from "./utils/parseCliArguments";
 it("recognizes --json", () => {
 	const parsed = parseCliArguments(["--json"]);
 
-	expect(parsed).toEqual({ ok: true, options: { json: true, agents: [] } });
+	expect(parsed).toEqual({ ok: true, options: { json: true, agents: [], relays: [] } });
 });
 
 it("parses a name-only --agent value", () => {
@@ -86,6 +86,72 @@ it("rejects --agent without a value", () => {
 	}
 
 	expect(parsed.usage).toContain("--agent requires a value");
+});
+
+it("parses a name-only --relay value", () => {
+	const parsed = parseCliArguments(["--relay", "myrelay"]);
+
+	expect(parsed.ok).toBe(true);
+
+	if (!parsed.ok) {
+		return;
+	}
+
+	expect(parsed.options.relays).toHaveLength(1);
+	expect(parsed.options.relays[0]?.name.test("myrelay")).toBe(true);
+	expect(parsed.options.relays[0]?.commandLine).toBeUndefined();
+	expect(parsed.options.relays[0]?.attests).toBeUndefined();
+});
+
+it("parses --relay with a commandLine regex that may contain colons", () => {
+	const parsed = parseCliArguments(["--relay", "node:vitest:worker"]);
+
+	expect(parsed.ok).toBe(true);
+
+	if (!parsed.ok) {
+		return;
+	}
+
+	const pattern = parsed.options.relays[0];
+
+	expect(pattern?.name.test("node")).toBe(true);
+	expect(pattern?.commandLine?.test("vitest:worker")).toBe(true);
+});
+
+it("rejects --relay without a value", () => {
+	const parsed = parseCliArguments(["--relay"]);
+
+	expect(parsed.ok).toBe(false);
+
+	if (parsed.ok) {
+		return;
+	}
+
+	expect(parsed.usage).toContain("--relay requires a value");
+});
+
+it("rejects --relay with an empty value", () => {
+	const parsed = parseCliArguments(["--relay", ""]);
+
+	expect(parsed.ok).toBe(false);
+
+	if (parsed.ok) {
+		return;
+	}
+
+	expect(parsed.usage).toContain("--relay requires a value");
+});
+
+it("rejects --relay with an invalid regex", () => {
+	const parsed = parseCliArguments(["--relay", "myrelay:("]);
+
+	expect(parsed.ok).toBe(false);
+
+	if (parsed.ok) {
+		return;
+	}
+
+	expect(parsed.usage).toContain("commandLine regex is invalid");
 });
 
 it("rejects unknown flags", () => {

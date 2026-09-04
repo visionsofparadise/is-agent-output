@@ -1,8 +1,8 @@
 import { basename } from "node:path";
 import { builtinAgentPatterns, type AgentPattern } from "./utils/builtinAgentPatterns";
+import { builtinRelayPatterns, type RelayPattern } from "./utils/builtinRelayPatterns";
 import { messageOf } from "./utils/messageOf";
 import { providerOf } from "./utils/providerOf";
-import { relayNames } from "./utils/relayNames";
 import type { ProcessInfo, Provider, StdoutSink } from "./utils/Provider";
 
 export interface Detection {
@@ -13,10 +13,13 @@ export interface Detection {
 
 export interface DetectAgentOutputOptions {
 	readonly agents?: ReadonlyArray<AgentPattern>;
+	readonly relays?: ReadonlyArray<RelayPattern>;
 	readonly provider?: Provider;
 }
 
 type MediatableSink = Extract<StdoutSink, { readonly kind: "stream" | "file" }>;
+
+type CommandLineOf = (pid: number) => string | undefined;
 
 const WALK_BOUND = 32;
 
@@ -28,29 +31,82 @@ const matchesRegex = (pattern: RegExp, value: string): boolean => {
 	return new RegExp(pattern.source, pattern.flags.replaceAll("g", "").replaceAll("y", "")).test(value);
 };
 
-const isRelay = (name: string): boolean => relayNames.has(name);
+const memoizedCommandLineOf = (provider: Provider): CommandLineOf => {
+	const read = new Map<number, string | undefined>();
+
+	return (pid: number): string | undefined => {
+		if (read.has(pid)) {
+			return read.get(pid);
+		}
+
+		const commandLine = provider.commandLineOf(pid);
+
+		read.set(pid, commandLine);
+
+		return commandLine;
+	};
+};
+
+const relayMatches = (
+	info: ProcessInfo,
+	relays: ReadonlyArray<RelayPattern>,
+	commandLineOf: CommandLineOf,
+): RelayPattern | undefined => {
+	for (const pattern of relays) {
+		if (!matchesRegex(pattern.name, info.name)) {
+			continue;
+		}
+
+		if (pattern.commandLine !== undefined) {
+			const commandLine = commandLineOf(info.pid);
+
+			if (commandLine === undefined || !matchesRegex(pattern.commandLine, commandLine)) {
+				continue;
+			}
+		}
+
+		return pattern;
+	}
+
+	return undefined;
+};
 
 const basenameOf = (path: string): string => basename(path.replaceAll("\\", "/"));
+
+interface RelayFrame {
+	readonly info: ProcessInfo;
+	readonly attests: boolean;
+}
 
 interface Ancestry {
 	readonly consumer: ProcessInfo | undefined;
 	readonly topRelay: ProcessInfo | undefined;
-	readonly relays: ReadonlyArray<ProcessInfo>;
+	readonly relays: ReadonlyArray<RelayFrame>;
 	readonly failure: string | undefined;
 }
 
-const ancestryOf = (provider: Provider, startPid: number): Ancestry => {
+const ancestryOf = (
+	provider: Provider,
+	startPid: number,
+	relays: ReadonlyArray<RelayPattern>,
+	commandLineOf: CommandLineOf,
+): Ancestry => {
 	const seen = new Set<number>([startPid]);
-	const relays: Array<ProcessInfo> = [];
+	const frames: Array<RelayFrame> = [];
 	let pid = provider.processInfoOf(startPid)?.ppid;
 
 	for (let hop = 0; hop < WALK_BOUND; hop += 1) {
 		if (pid === undefined) {
-			return { consumer: undefined, topRelay: undefined, relays, failure: "no consumer resolvable" };
+			return { consumer: undefined, topRelay: undefined, relays: frames, failure: "no consumer resolvable" };
 		}
 
 		if (seen.has(pid)) {
-			return { consumer: undefined, topRelay: undefined, relays, failure: "process ancestry walk cycle" };
+			return {
+				consumer: undefined,
+				topRelay: undefined,
+				relays: frames,
+				failure: "process ancestry walk cycle",
+			};
 		}
 
 		seen.add(pid);
@@ -58,18 +114,25 @@ const ancestryOf = (provider: Provider, startPid: number): Ancestry => {
 		const info = provider.processInfoOf(pid);
 
 		if (info === undefined) {
-			return { consumer: undefined, topRelay: undefined, relays, failure: "no consumer resolvable" };
+			return { consumer: undefined, topRelay: undefined, relays: frames, failure: "no consumer resolvable" };
 		}
 
-		if (!isRelay(info.name)) {
-			return { consumer: info, topRelay: relays.at(-1), relays, failure: undefined };
+		const relay = relayMatches(info, relays, commandLineOf);
+
+		if (relay === undefined) {
+			return { consumer: info, topRelay: frames.at(-1)?.info, relays: frames, failure: undefined };
 		}
 
-		relays.push(info);
+		frames.push({ info, attests: relay.attests ?? true });
 		pid = info.ppid;
 	}
 
-	return { consumer: undefined, topRelay: undefined, relays, failure: "process ancestry walk bound exceeded" };
+	return {
+		consumer: undefined,
+		topRelay: undefined,
+		relays: frames,
+		failure: "process ancestry walk bound exceeded",
+	};
 };
 
 const agentLabelOf = (
@@ -107,6 +170,7 @@ const sinkIsUnmediated = (
 	consumer: ProcessInfo,
 	ancestry: Ancestry,
 	provider: Provider,
+	commandLineOf: CommandLineOf,
 ): { readonly unmediated: boolean; readonly reason: string } => {
 	const { topRelay, relays } = ancestry;
 
@@ -137,31 +201,57 @@ const sinkIsUnmediated = (
 			return { unmediated: true, reason: "" };
 		}
 
-		if (relays.some((relay) => relay.pid === sink.serverPid)) {
+		if (relays.some((relay) => relay.info.pid === sink.serverPid)) {
 			return { unmediated: false, reason: "authored stream owned by relay" };
 		}
 
 		return { unmediated: false, reason: "authored stream" };
 	}
 
-	if (topRelay === undefined) {
+	const outermost = relays.at(-1);
+
+	if (outermost === undefined) {
 		return { unmediated: false, reason: "file sink with no surviving relay" };
 	}
 
-	const commandLine = provider.commandLineOf(topRelay.pid);
-
-	if (commandLine === undefined) {
-		return { unmediated: false, reason: "unresolvable top-relay command line" };
+	if (!outermost.attests) {
+		return { unmediated: false, reason: "file sink attested by a runner" };
 	}
 
-	if (commandLine.includes(basenameOf(sink.path))) {
+	if (provider.fd1IdentityOf(process.pid) !== undefined) {
+		const inherited = provider.fd1IdentityOf(outermost.info.pid);
+
+		if (inherited === undefined) {
+			return { unmediated: false, reason: "unreadable relay fd 1" };
+		}
+
+		if (inherited === sink.path) {
+			return { unmediated: true, reason: "" };
+		}
+
+		return { unmediated: false, reason: "authored redirect" };
+	}
+
+	const commandLines = relays.map((relay) => commandLineOf(relay.info.pid));
+
+	if (commandLines.some((commandLine) => commandLine === undefined)) {
+		return { unmediated: false, reason: "unresolvable relay command line" };
+	}
+
+	const sinkBasename = basenameOf(sink.path);
+
+	if (commandLines.some((commandLine) => commandLine?.includes(sinkBasename) === true)) {
 		return { unmediated: false, reason: "authored redirect" };
 	}
 
 	return { unmediated: true, reason: "" };
 };
 
-const detectWith = (provider: Provider, agents: ReadonlyArray<AgentPattern>): Detection => {
+const detectWith = (
+	provider: Provider,
+	agents: ReadonlyArray<AgentPattern>,
+	relays: ReadonlyArray<RelayPattern>,
+): Detection => {
 	const sink = provider.stdoutSinkOf();
 
 	if (sink.kind === "tty") {
@@ -174,14 +264,15 @@ const detectWith = (provider: Provider, agents: ReadonlyArray<AgentPattern>): De
 		return { isAgentOutput: false, reason: supported ? "unknown stdout sink" : "unsupported platform" };
 	}
 
-	const ancestry = ancestryOf(provider, process.pid);
+	const commandLineOf = memoizedCommandLineOf(provider);
+	const ancestry = ancestryOf(provider, process.pid, relays, commandLineOf);
 	const consumer = ancestry.consumer;
 
 	if (consumer === undefined) {
 		return { isAgentOutput: false, reason: ancestry.failure ?? "no consumer resolvable" };
 	}
 
-	const mediation = sinkIsUnmediated(sink, consumer, ancestry, provider);
+	const mediation = sinkIsUnmediated(sink, consumer, ancestry, provider, commandLineOf);
 
 	if (!mediation.unmediated) {
 		return {
@@ -191,7 +282,7 @@ const detectWith = (provider: Provider, agents: ReadonlyArray<AgentPattern>): De
 		};
 	}
 
-	const label = agentLabelOf(consumer, agents, () => provider.commandLineOf(consumer.pid));
+	const label = agentLabelOf(consumer, agents, () => commandLineOf(consumer.pid));
 
 	if (label === undefined) {
 		return {
@@ -212,8 +303,9 @@ export const detectAgentOutput = (options?: DetectAgentOutputOptions): Detection
 	try {
 		const provider = options?.provider ?? providerOf();
 		const agents = [...builtinAgentPatterns, ...(options?.agents ?? [])];
+		const relays = [...builtinRelayPatterns, ...(options?.relays ?? [])];
 
-		return detectWith(provider, agents);
+		return detectWith(provider, agents, relays);
 	} catch (error: unknown) {
 		return { isAgentOutput: false, reason: messageOf(error) };
 	}

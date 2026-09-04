@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { detectAgentOutput } from "./detectAgentOutput";
 import type { ProcessInfo, Provider, StdoutSink } from "./utils/Provider";
 
@@ -19,6 +19,18 @@ const processOf = (pid: number, ppid: number | undefined, name: string, commandL
 	commandLine,
 });
 
+const commandLineReads = vi.fn<(pid: number) => void>();
+
+beforeEach(() => {
+	commandLineReads.mockClear();
+});
+
+afterEach(() => {
+	const pids = commandLineReads.mock.calls.map(([pid]) => pid);
+
+	expect(new Set(pids).size).toBe(pids.length);
+});
+
 const fakeProviderOf = (args: {
 	readonly tree: readonly FakeProcess[];
 	readonly sink: StdoutSink;
@@ -35,7 +47,11 @@ const fakeProviderOf = (args: {
 
 			return byPid.get(pid)?.info;
 		},
-		commandLineOf: (pid: number): string | undefined => byPid.get(pid)?.commandLine,
+		commandLineOf: (pid: number): string | undefined => {
+			commandLineReads(pid);
+
+			return byPid.get(pid)?.commandLine;
+		},
 		stdoutSinkOf: (): StdoutSink => {
 			if (args.throws !== undefined) {
 				throw new Error(args.throws);
@@ -434,7 +450,7 @@ it("returns false with unsupported platform when the provider cannot resolve sel
 	expect(detection.reason).toBe("unsupported platform");
 });
 
-it("returns false when a file sink's top relay command line is unreadable", () => {
+it("returns false when a file sink's relay command line is unreadable", () => {
 	const detection = detectAgentOutput({
 		provider: fakeProviderOf({
 			tree: [
@@ -447,7 +463,7 @@ it("returns false when a file sink's top relay command line is unreadable", () =
 	});
 
 	expect(detection.isAgentOutput).toBe(false);
-	expect(detection.reason).toBe("unresolvable top-relay command line");
+	expect(detection.reason).toBe("unresolvable relay command line");
 });
 
 it("keeps builtin labels when a user pattern also matches the consumer", () => {
@@ -497,4 +513,235 @@ it("reads the consumer command line once for a pattern that discriminates on it"
 
 	expect(detection.consumer?.label).toBe("claude-code-node");
 	expect(commandLineOf).toHaveBeenCalledExactlyOnceWith(extraPid);
+});
+
+const npmNodePid = 6001;
+const npmShimPid = 6002;
+const cmdPid = 6003;
+const npmTitlePid = 6004;
+const pnpmNodePid = 6005;
+const scriptPid = 6006;
+const shPid = 6007;
+const windowsNpmNodeCommandLine =
+	'"C:\\Program Files\\nodejs\\node.exe" "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js" run --silent probe';
+const windowsNpmShimCommandLine = "C:\\Users\\mttcv\\AppData\\Local\\znpm\\shim\\npm.exe run --silent probe";
+const windowsNpmBuildNodeCommandLine =
+	'"C:\\Program Files\\nodejs\\node.exe" "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js" run build';
+const windowsNpmBuildShimCommandLine = "C:\\Users\\mttcv\\AppData\\Local\\znpm\\shim\\npm.exe run build";
+const windowsRedirectingCmdCommandLine = 'C:\\WINDOWS\\system32\\cmd.exe /d /s /c "node cli.js > out.txt"';
+
+it("returns true for a windows npm run chain whose stream is owned by claude", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(cmdPid),
+				processOf(cmdPid, npmNodePid, "cmd", 'C:\\WINDOWS\\system32\\cmd.exe /d /s /c "node cli.js"'),
+				processOf(npmNodePid, npmShimPid, "node", windowsNpmNodeCommandLine),
+				processOf(npmShimPid, bashPid, "npm", windowsNpmShimCommandLine),
+				processOf(bashPid, claudePid, "bash", 'bash -c "npm run --silent probe"'),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "stream", serverPid: claudePid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("returns false when a windows npm run chain's stream is owned by npm's node", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(cmdPid),
+				processOf(cmdPid, npmNodePid, "cmd", 'C:\\WINDOWS\\system32\\cmd.exe /d /s /c "node cli.js"'),
+				processOf(npmNodePid, npmShimPid, "node", windowsNpmNodeCommandLine),
+				processOf(npmShimPid, bashPid, "npm", windowsNpmShimCommandLine),
+				processOf(bashPid, claudePid, "bash", 'bash -c "npm run --silent probe"'),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "stream", serverPid: npmNodePid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("authored stream owned by relay");
+});
+
+it("returns true for a linux npm run title under a shell relay", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(npmTitlePid),
+				processOf(npmTitlePid, bashPid, "npm run probe", "npm run probe"),
+				processOf(bashPid, claudePid, "bash", "bash -c npm run probe"),
+				processOf(claudePid, 1, "claude", "claude"),
+			],
+			sink: { kind: "stream", serverPid: undefined, identity: "pipe:[555]" },
+			fd1: { [process.pid]: "pipe:[555]", [bashPid]: "pipe:[555]" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("returns true for a linux pnpm node spawned directly by the harness", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(pnpmNodePid),
+				processOf(pnpmNodePid, claudePid, "node", "node /usr/lib/node_modules/pnpm/bin/pnpm.cjs run probe"),
+				processOf(claudePid, 1, "claude", "claude"),
+			],
+			sink: { kind: "stream", serverPid: undefined, identity: "pipe:[666]" },
+			fd1: { [process.pid]: "pipe:[666]", [pnpmNodePid]: "pipe:[666]" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("returns false for a node consumer running a script rather than a package runner", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(scriptPid),
+				processOf(scriptPid, claudePid, "node", "node /home/u/some-script.js"),
+				processOf(claudePid, 1, "claude", "claude"),
+			],
+			sink: { kind: "stream", serverPid: scriptPid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("consumer node matched no agent pattern");
+});
+
+it("skips a user-supplied relay pattern", () => {
+	const detection = detectAgentOutput({
+		relays: [{ name: /^myrelay$/ }],
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(extraPid),
+				processOf(extraPid, claudePid, "myrelay", "myrelay --wrap node"),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "stream", serverPid: claudePid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("returns false for a file sink whose outermost relay is a package runner", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(npmTitlePid),
+				processOf(npmTitlePid, claudePid, "npm run build", "npm run build"),
+				processOf(claudePid, 1, "claude", "claude"),
+			],
+			sink: { kind: "file", path: "/tmp/capture.txt" },
+			fd1: { [process.pid]: "pipe:[1]", [npmTitlePid]: "/tmp/capture.txt" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("file sink attested by a runner");
+});
+
+it("returns true for a file sink matching the attesting shell relay fd 1", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(shPid),
+				processOf(shPid, npmTitlePid, "sh", "sh -c node cli.js"),
+				processOf(npmTitlePid, bashPid, "npm run build", "npm run build"),
+				processOf(bashPid, claudePid, "bash", "bash -c npm run build"),
+				processOf(claudePid, 1, "claude", "claude"),
+			],
+			sink: { kind: "file", path: "/tmp/capture.txt" },
+			fd1: { [process.pid]: "pipe:[1]", [bashPid]: "/tmp/capture.txt" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("returns false for a file sink differing from the attesting shell relay fd 1", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(shPid),
+				processOf(shPid, npmTitlePid, "sh", "sh -c node cli.js"),
+				processOf(npmTitlePid, bashPid, "npm run build", "npm run build"),
+				processOf(bashPid, claudePid, "bash", "bash -c npm run build > out.txt"),
+				processOf(claudePid, 1, "claude", "claude"),
+			],
+			sink: { kind: "file", path: "/tmp/out.txt" },
+			fd1: { [process.pid]: "pipe:[1]", [bashPid]: "pipe:[2]" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("authored redirect");
+});
+
+it("returns false for a windows file sink named on an inner relay command line", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(cmdPid),
+				processOf(cmdPid, npmNodePid, "cmd", windowsRedirectingCmdCommandLine),
+				processOf(npmNodePid, npmShimPid, "node", windowsNpmBuildNodeCommandLine),
+				processOf(npmShimPid, bashPid, "npm", windowsNpmBuildShimCommandLine),
+				processOf(bashPid, claudePid, "bash", 'bash -c "npm run build"'),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "file", path: "C:\\Users\\mttcv\\project\\out.txt" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("authored redirect");
+});
+
+it("returns true for a windows file sink named on no relay command line", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(cmdPid),
+				processOf(cmdPid, npmNodePid, "cmd", windowsRedirectingCmdCommandLine),
+				processOf(npmNodePid, npmShimPid, "node", windowsNpmBuildNodeCommandLine),
+				processOf(npmShimPid, bashPid, "npm", windowsNpmBuildShimCommandLine),
+				processOf(bashPid, claudePid, "bash", 'bash -c "npm run build"'),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "file", path: "C:\\Users\\mttcv\\project\\capture.txt" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("returns false when an attesting relay fd 1 cannot be read", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, claudePid, "bash", "bash -c node cli.js"),
+				processOf(claudePid, 1, "claude", "claude"),
+			],
+			sink: { kind: "file", path: "/tmp/capture.txt" },
+			fd1: { [process.pid]: "pipe:[1]" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("unreadable relay fd 1");
 });

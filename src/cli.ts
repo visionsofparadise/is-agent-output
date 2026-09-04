@@ -7,7 +7,7 @@ import { parseCliArguments } from "./utils/parseCliArguments";
 const parsed = parseCliArguments(process.argv.slice(2));
 
 if (parsed.ok) {
-	const detection = detectAgentOutput({ agents: parsed.options.agents });
+	const detection = detectAgentOutput({ agents: parsed.options.agents, relays: parsed.options.relays });
 
 	process.exitCode = detection.isAgentOutput ? 0 : 1;
 
