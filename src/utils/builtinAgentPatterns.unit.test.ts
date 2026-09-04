@@ -59,7 +59,7 @@ const samples: ReadonlyArray<Sample> = [
 	{ label: "dsh", name: "node", commandLine: "/usr/lib/node_modules/@deepseek-ai/dsh/cli.js" },
 	{ label: "qoder", name: "node", commandLine: "/usr/lib/node_modules/@qoder-ai/qodercli/qodercli.js" },
 	{ label: "continue-cn", name: "node", commandLine: "/usr/lib/node_modules/@continuedev/cli/dist/cn.js" },
-	{ label: "gemini-npm", name: "node", commandLine: "/usr/lib/node_modules/@google/gemini-cli/index.js" },
+	{ label: "gemini-npm", name: "node", commandLine: "node /usr/local/bin/gemini" },
 	{ label: "qwen", name: "node", commandLine: "/usr/lib/node_modules/@qwen-code/qwen-code/cli.js" },
 	{ label: "vibe-windows", name: "python", commandLine: '"C:\\Users\\m\\.local\\bin\\vibe.exe"' },
 	{
@@ -88,8 +88,16 @@ const samples: ReadonlyArray<Sample> = [
 	{ label: "gptme-windows", name: "python", commandLine: "C:\\Users\\m\\.venv\\Scripts\\gptme.exe" },
 ];
 
+const matchesRegex = (pattern: RegExp, value: string): boolean => {
+	if (!pattern.global && !pattern.sticky) {
+		return pattern.test(value);
+	}
+
+	return new RegExp(pattern.source, pattern.flags.replaceAll("g", "").replaceAll("y", "")).test(value);
+};
+
 const matches = (pattern: AgentPattern, sample: Sample): boolean => {
-	if (!pattern.name.test(sample.name)) {
+	if (!matchesRegex(pattern.name, sample.name)) {
 		return false;
 	}
 
@@ -97,7 +105,7 @@ const matches = (pattern: AgentPattern, sample: Sample): boolean => {
 		return true;
 	}
 
-	return sample.commandLine !== undefined && pattern.commandLine.test(sample.commandLine);
+	return sample.commandLine !== undefined && matchesRegex(pattern.commandLine, sample.commandLine);
 };
 
 const labelsMatching = (sample: Sample): ReadonlyArray<string> =>
