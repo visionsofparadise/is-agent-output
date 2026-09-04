@@ -65,15 +65,11 @@ const stdoutSinkOf = (): StdoutSink => {
 	try {
 		const identity = readlinkSync("/proc/self/fd/1");
 
-		if (identity.startsWith("pipe:")) {
-			return { kind: "pipe", serverPid: undefined, identity };
-		}
-
 		if (identity.startsWith("/")) {
 			return { kind: "file", path: identity };
 		}
 
-		return { kind: "unknown" };
+		return { kind: "stream", serverPid: undefined, identity };
 	} catch {
 		return { kind: "unknown" };
 	}

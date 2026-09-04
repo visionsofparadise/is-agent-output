@@ -1,3 +1,4 @@
+import { readlinkSync } from "node:fs";
 import { expect, it } from "vitest";
 import { linuxProvider } from "./linuxProvider";
 
@@ -15,10 +16,24 @@ itLinux("processInfoOf resolves the current process and its parent", () => {
 	expect(parent).toBeDefined();
 });
 
-itLinux("stdoutSinkOf returns a non-unknown kind under the test runner", () => {
+itLinux("stdoutSinkOf classifies whatever its own fd 1 is", () => {
 	const sink = linuxProvider.stdoutSinkOf();
 
-	expect(sink.kind).not.toBe("unknown");
+	if (process.stdout.isTTY) {
+		expect(sink).toEqual({ kind: "tty" });
+
+		return;
+	}
+
+	const link = readlinkSync("/proc/self/fd/1");
+
+	if (link.startsWith("/")) {
+		expect(sink).toEqual({ kind: "file", path: link });
+
+		return;
+	}
+
+	expect(sink).toEqual({ kind: "stream", serverPid: undefined, identity: link });
 });
 
 itLinux("processInfoOf(-1) returns undefined", () => {

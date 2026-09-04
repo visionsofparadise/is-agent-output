@@ -15,7 +15,7 @@ export interface DetectAgentOutputOptions {
 	readonly provider?: Provider;
 }
 
-type MediatableSink = Extract<StdoutSink, { readonly kind: "pipe" | "file" }>;
+type MediatableSink = Extract<StdoutSink, { readonly kind: "stream" | "file" }>;
 
 const WALK_BOUND = 32;
 
@@ -117,23 +117,27 @@ const sinkIsUnmediated = (
 ): { readonly unmediated: boolean; readonly reason: string } => {
 	const { topRelay, relays } = ancestry;
 
-	if (sink.kind === "pipe") {
+	if (sink.kind === "stream") {
 		if (sink.identity !== undefined) {
-			const inherited = provider.fd1IdentityOf(topRelay?.pid ?? consumer.pid);
+			if (topRelay === undefined) {
+				return { unmediated: true, reason: "" };
+			}
+
+			const inherited = provider.fd1IdentityOf(topRelay.pid);
 
 			if (inherited === undefined) {
-				return { unmediated: false, reason: "pipe owner unresolved" };
+				return { unmediated: false, reason: "stream owner unresolved" };
 			}
 
 			if (inherited === sink.identity) {
 				return { unmediated: true, reason: "" };
 			}
 
-			return { unmediated: false, reason: "authored pipe" };
+			return { unmediated: false, reason: "authored stream" };
 		}
 
 		if (sink.serverPid === undefined) {
-			return { unmediated: false, reason: "pipe owner unresolved" };
+			return { unmediated: false, reason: "stream owner unresolved" };
 		}
 
 		if (sink.serverPid === consumer.pid) {
@@ -141,14 +145,14 @@ const sinkIsUnmediated = (
 		}
 
 		if (relays.some((relay) => relay.pid === sink.serverPid)) {
-			return { unmediated: false, reason: "authored pipe owned by relay" };
+			return { unmediated: false, reason: "authored stream owned by relay" };
 		}
 
-		return { unmediated: false, reason: "authored pipe" };
+		return { unmediated: false, reason: "authored stream" };
 	}
 
 	if (topRelay === undefined) {
-		return { unmediated: true, reason: "" };
+		return { unmediated: false, reason: "file sink with no surviving relay" };
 	}
 
 	const commandLine = provider.commandLineOf(topRelay.pid);

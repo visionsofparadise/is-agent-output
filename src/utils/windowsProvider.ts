@@ -312,7 +312,7 @@ const loadWindowsApi = (): WindowsApi => {
 			const resolved = GetNamedPipeServerProcessId(stdoutHandle, serverPidOut);
 			const serverPid = resolved ? serverPidOut[0] : undefined;
 
-			return { kind: "pipe", serverPid, identity: undefined };
+			return { kind: "stream", serverPid, identity: undefined };
 		}
 
 		if (fileType === FILE_TYPE_DISK) {
