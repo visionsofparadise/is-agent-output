@@ -25,6 +25,12 @@ const WALK_BOUND = 32;
 
 const HIDDEN_REDIRECT_TARGET = /(?<![=<>-])\d?>>?[|&]?\s*["']?[^"'\s]*[$`%!]/;
 
+const SOURCED_SCRIPT = /(?:\bsource\b|(?<=^|[\s;&|(])\.)\s+["']?[^\s"';&|]*\.(?:bat|cmd|ps1|sh)\b/gi;
+
+const INVOKED_SCRIPT = /[^\s"';&|]*\.(?:bat|cmd|ps1|sh)\b/i;
+
+const invokesScript = (commandLine: string): boolean => INVOKED_SCRIPT.test(commandLine.replaceAll(SOURCED_SCRIPT, ""));
+
 const matchesRegex = (pattern: RegExp, value: string): boolean => {
 	if (!pattern.global && !pattern.sticky) {
 		return pattern.test(value);
@@ -231,6 +237,10 @@ const sinkIsUnmediated = (
 
 	if (commandLines.some((commandLine) => HIDDEN_REDIRECT_TARGET.test(commandLine))) {
 		return { unmediated: false, reason: "unresolvable redirect target in a relay command line" };
+	}
+
+	if (commandLines.some(invokesScript)) {
+		return { unmediated: false, reason: "unreadable script in a relay command line" };
 	}
 
 	if (provider.fd1IdentityOf(process.pid) === undefined) {

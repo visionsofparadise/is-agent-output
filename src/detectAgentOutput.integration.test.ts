@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -117,6 +117,35 @@ itBash(
 
 const detectionOf = (json: string): { isAgentOutput: boolean; reason: string } =>
 	JSON.parse(json.trim()) as { isAgentOutput: boolean; reason: string };
+
+itBash(
+	"returns false when a script file the relay names holds the redirect",
+	async () => {
+		ensureBuild();
+		const directory = await mkdtemp(join(tmpdir(), "is-agent-output-script-"));
+		const outputPath = join(directory, "out.txt");
+		const scriptPath = join(directory, "redirect.sh");
+
+		try {
+			await writeFile(
+				scriptPath,
+				`${nodeCommandOf(cliPath, " --json")} > ${quoted(posixPathOf(outputPath))}
+`,
+				"utf8",
+			);
+
+			await exitCodeOf(`bash ${quoted(posixPathOf(scriptPath))}`);
+
+			const detection = detectionOf(await readFile(outputPath, "utf8"));
+
+			expect(detection.isAgentOutput).toBe(false);
+			expect(detection.reason).toBe("unreadable script in a relay command line");
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	},
+	spawnTimeoutMs,
+);
 
 const installTimeoutMs = 300_000;
 

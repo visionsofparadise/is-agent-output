@@ -785,6 +785,45 @@ it.each([
 	expect(detection.reason).toBe("unresolvable redirect target in a relay command line");
 });
 
+const claudeSnapshotCommandLine = String.raw`"C:\Program Files\Git\bin\bash.exe" -c "source /c/Users/mttcv/.claude/shell-snapshots/snapshot-bash-1788540327742-ru8mkq.sh 2>/dev/null || true && export TEMP='C:\Users\mttcv\AppData\Local\Temp' && shopt -u extglob 2>/dev/null || true && eval 'cd '"`;
+
+it.each([
+	["a cmd batch file", String.raw`cmd /d /s /c redirect.bat`],
+	["a powershell script", String.raw`powershell -File .\redirect.ps1`],
+	["a posix script", String.raw`sh /tmp/redirect.sh`],
+])("returns false for %s whose body the relay command line hides", (_label: string, commandLine: string) => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(shPid),
+				processOf(shPid, claudePid, "sh", commandLine),
+				processOf(claudePid, 1, "claude", "claude"),
+			],
+			sink: { kind: "file", path: "/tmp/out.txt" },
+			fd1: { [process.pid]: "pipe:[1]", [shPid]: "/tmp/out.txt" },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("unreadable script in a relay command line");
+});
+
+it("returns true for a file sink under a relay that sources a harness snapshot", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, claudePid, "bash", claudeSnapshotCommandLine),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "file", path: String.raw`C:\Users\mttcv\.claude\tasks\4f2a.output` },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
 it("returns false when an attesting relay fd 1 cannot be read", () => {
 	const detection = detectAgentOutput({
 		provider: fakeProviderOf({
