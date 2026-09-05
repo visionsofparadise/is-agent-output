@@ -68,12 +68,12 @@ A harness is in the table when the command's stdout provably reaches the model a
 
 The walk skips relays and takes the first ancestor that is not one as the consumer.
 
-| passes output through | recognised as                                                                                    |
-| --------------------- | ------------------------------------------------------------------------------------------------ |
-| shells                | `bash`, `sh`, `dash`, `zsh`, `ash`, `ksh`, `mksh`, `fish`, `elvish`, `cmd`, `powershell`, `pwsh` |
-| launchers             | `env`, `nice`, `nohup`, `timeout`, `stdbuf`, `chroot`, `ionice`, `chrt`, `taskset`               |
-| sandbox wrappers      | `bwrap`, `apply-seccomp`, `sandbox-exec`, and the wrappers Cursor, Gemini CLI, and Codex ship    |
-| package runners       | `npm run`, `npx`, `pnpm`                                                                         |
+| passes output through | recognised as                                                                                                                                                     |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| shells                | `bash`, `sh`, `dash`, `zsh`, `ash`, `ksh`, `mksh`, `fish`, `elvish`, `cmd`, `powershell`, `pwsh`                                                                  |
+| launchers             | `env`, `nice`, `nohup`, `timeout`, `stdbuf`, `chroot`, `ionice`, `chrt`, `taskset`                                                                                |
+| sandbox wrappers      | `bwrap`, `apply-seccomp`, `sandbox-exec`, and the wrappers Cursor, Gemini CLI, and Codex ship                                                                     |
+| package runners       | `npm run`, `npx`, `pnpm`, `yarn`, `node --run`, `bun run`, `deno task`, `uv`, `uvx`, `pipx`, `poetry`, `pdm`, `cargo`, `go`, `dotnet`, `tsx`, `ts-node`, `direnv` |
 
 ## Extra harnesses and relays
 
