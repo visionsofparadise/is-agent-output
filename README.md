@@ -41,7 +41,7 @@ interface Detection {
 
 1. stdout is not a tty
 2. the first non-relay ancestor matches a [known harness](#harnesses), or a pattern you passed in
-3. no pipe or redirect sits between this process and the harness — only [known relays](#relays), which pass output straight through
+3. no pipe or redirect sits between this process and the harness, only [known relays](#relays), which pass output straight through
 
 Following these rules ensures any other consumers, such as piping or file writes, are not taken as agent output. It defaults to false in unclear or mixed scenarios.
 
@@ -49,20 +49,24 @@ Following these rules ensures any other consumers, such as piping or file writes
 
 A harness is in the table when the command's stdout provably reaches the model alone.
 
-| Harness       | Harness            | Harness          |
-| ------------- | ------------------ | ---------------- |
-| Amp           | Forge              | Mistral Vibe     |
-| Auggie        | Freebuff           | Nanocoder        |
-| Claude Code   | Gemini CLI         | oh-my-pi         |
-| Cline         | GitHub Copilot CLI | opencode         |
-| Codex         | goose              | Open Interpreter |
-| CodeWhale     | gptme              | OpenHands        |
-| Continue      | Grok CLI           | Pi               |
-| Crush         | Kilo Code          | Qoder            |
-| DeepSeek dsh  | Kimchi             | Qwen Code        |
-| Docker Agent  | Kimi CLI           | Reasonix         |
-| Every Code    | Letta Code         | senpi            |
-| Factory Droid | mini-swe-agent     |                  |
+| Harness           | Harness            | Harness          |
+| ----------------- | ------------------ | ---------------- |
+| Amp               | Factory Droid      | Mistral Vibe     |
+| Auggie            | Forge              | Nanocoder        |
+| Claude Code       | Freebuff           | oh-my-pi         |
+| Claude Desktop    | Gemini CLI         | opencode         |
+| Cline             | GitHub Copilot CLI | opencode desktop |
+| Codex             | goose              | Open Interpreter |
+| Codex desktop app | goose desktop      | OpenHands        |
+| CodeWhale         | gptme              | Pi               |
+| Continue          | Grok CLI           | Qoder            |
+| Crush             | Kilo Code          | Qwen Code        |
+| DeepSeek dsh      | Kimchi             | Reasonix         |
+| Docker Agent      | Kimi CLI           | Reasonix desktop |
+| Docker Desktop    | Letta Code         | senpi            |
+| Every Code        | mini-swe-agent     |                  |
+
+IDE agents are not covered: Cline and Continue in VS Code, Copilot inside VS Code, Gemini Code Assist, and the Cursor, Zed, Windsurf, Trae, Kiro, Devin and Junie agents all print output into a terminal panel in the editor, where you read it too.
 
 ### Relays
 
