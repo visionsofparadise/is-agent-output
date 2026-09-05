@@ -523,6 +523,7 @@ const npmTitlePid = 6004;
 const pnpmNodePid = 6005;
 const scriptPid = 6006;
 const shPid = 6007;
+const runnerPid = 6008;
 const windowsNpmNodeCommandLine =
 	'"C:\\Program Files\\nodejs\\node.exe" "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js" run --silent probe';
 const windowsNpmShimCommandLine = "C:\\Users\\mttcv\\AppData\\Local\\znpm\\shim\\npm.exe run --silent probe";
@@ -838,6 +839,68 @@ it("returns false for a windows redirect whose target differs from the sink only
 
 	expect(detection.isAgentOutput).toBe(false);
 	expect(detection.reason).toBe("authored redirect");
+});
+
+it.each([
+	["node --run", "node", String.raw`node --run probe`],
+	["bun run", "bun", String.raw`bun run probe`],
+	["deno task", "deno", String.raw`deno task probe`],
+	["uv run", "uv", String.raw`uv run probe`],
+	["cargo run", "cargo", String.raw`cargo run`],
+	["yarn", "yarn", String.raw`yarn probe`],
+])("skips %s and resolves the harness above it", (_label: string, name: string, commandLine: string) => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(runnerPid),
+				processOf(runnerPid, bashPid, name, commandLine),
+				processOf(bashPid, claudePid, "bash", "bash -c probe"),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "stream", serverPid: claudePid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("keeps oh-my-pi's own bun as the consumer rather than skipping it as a runner", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, runnerPid, "bash", "bash -c probe"),
+				processOf(
+					runnerPid,
+					1,
+					"bun",
+					String.raw`bun /home/u/node_modules/@oh-my-pi/pi-coding-agent/dist/index.js`,
+				),
+			],
+			sink: { kind: "stream", serverPid: runnerPid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("omp-windows");
+});
+
+it("keeps deno run as the consumer, since only deno task passes output through", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(runnerPid),
+				processOf(runnerPid, bashPid, "deno", String.raw`deno run -A main.ts`),
+				processOf(bashPid, claudePid, "bash", "bash -c probe"),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "stream", serverPid: claudePid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("consumer deno matched no agent pattern");
 });
 
 it("returns false when an attesting relay fd 1 cannot be read", () => {

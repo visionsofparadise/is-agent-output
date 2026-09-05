@@ -41,7 +41,7 @@ export const builtinRelayPatterns: ReadonlyArray<RelayPattern> = [
 		 * npm's node process.
 		 */
 		name: /^node$/,
-		commandLine: /[\\/](?:npm-cli\.js|npx-cli\.js|pnpm\.cjs)(?:["'\s]|$)/,
+		commandLine: /[\\/](?:npm-cli\.js|npx-cli\.js|pnpm\.cjs|yarn\.js)(?:["'\s]|$)/,
 		attests: false,
 	},
 	{
@@ -55,7 +55,59 @@ export const builtinRelayPatterns: ReadonlyArray<RelayPattern> = [
 		/**
 		 * The Windows shim image.
 		 */
-		name: /^(?:npm|npx|pnpm)$/,
+		name: /^(?:npm|npx|pnpm|yarn)$/,
+		attests: false,
+	},
+	{
+		/**
+		 * Node's own script runner.
+		 */
+		name: /^node$/,
+		commandLine: /\s--run(?:[=\s]|$)/,
+		attests: false,
+	},
+	{
+		/**
+		 * Bun's script runner, qualified so oh-my-pi's own bun stays a consumer.
+		 */
+		name: /^bun$/,
+		commandLine: /(?:^|[\\/\s"'])bun(?:\.exe)?["']?\s+run\s/,
+		attests: false,
+	},
+	{
+		/**
+		 * Deno's task runner.
+		 */
+		name: /^deno$/,
+		commandLine: /(?:^|[\\/\s"'])deno(?:\.exe)?["']?\s+task\s/,
+		attests: false,
+	},
+	{
+		/**
+		 * Python packaging runners.
+		 */
+		name: /^(?:uv|uvx|pipx|poetry|pdm)$/,
+		attests: false,
+	},
+	{
+		/**
+		 * Compiled-language toolchain runners.
+		 */
+		name: /^(?:cargo|go|dotnet)$/,
+		attests: false,
+	},
+	{
+		/**
+		 * TypeScript loaders.
+		 */
+		name: /^(?:tsx|ts-node)$/,
+		attests: false,
+	},
+	{
+		/**
+		 * Environment loader.
+		 */
+		name: /^direnv$/,
 		attests: false,
 	},
 ];
