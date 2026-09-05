@@ -1464,3 +1464,38 @@ it("returns false when neither the image name nor argv[0] names a harness", () =
 	expect(detection.reason).toBe("consumer node matched no agent pattern");
 	expect(argv0Reads).toHaveBeenCalledTimes(1);
 });
+
+it("refuses a harness signature on a consumer that presents a runtime name in argv[0]", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, extraPid, "bash", "bash -c probe"),
+				presentingAs(
+					processOf(extraPid, 1, "wrapper", "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js"),
+					"node",
+				),
+			],
+			sink: { kind: "stream", serverPid: extraPid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("consumer wrapper matched no agent pattern");
+});
+
+it("answers by image name against a provider that implements no argv0Of", () => {
+	const provider = fakeProviderOf({
+		tree: [
+			selfOn(bashPid),
+			processOf(bashPid, claudePid, "bash", "bash -c probe"),
+			processOf(claudePid, 1, "claude", "claude.exe"),
+		],
+		sink: { kind: "stream", serverPid: claudePid, identity: undefined },
+	});
+	const { argv0Of: _argv0Of, ...withoutArgv0 } = provider;
+	const detection = detectAgentOutput({ provider: withoutArgv0 });
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});

@@ -71,7 +71,7 @@ const argv0Of = (pid: number): string | undefined => {
 	}
 
 	try {
-		const argv0 = readFileSync(procPathOf(pid, "cmdline"), "utf8").split("\0")[0] ?? "";
+		const argv0 = readFileSync(procPathOf(pid, "cmdline"), "utf8").split("\0")[0]?.replaceAll("\\", "/") ?? "";
 		const name = argv0.slice(argv0.lastIndexOf("/") + 1).toLowerCase();
 
 		return name.length > 0 ? name : undefined;

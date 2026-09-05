@@ -145,13 +145,17 @@ const agentLabelOf = (
 	let commandLine: string | undefined;
 	let commandLineRead = false;
 
-	const labelFor = (name: string): string | undefined => {
+	const labelFor = (name: string, signed: boolean): string | undefined => {
 		for (const pattern of agents) {
 			if (!matchesRegex(pattern.name, name)) {
 				continue;
 			}
 
 			if (pattern.commandLine !== undefined) {
+				if (!signed) {
+					continue;
+				}
+
 				if (!commandLineRead) {
 					commandLine = commandLineOf();
 					commandLineRead = true;
@@ -168,7 +172,7 @@ const agentLabelOf = (
 		return undefined;
 	};
 
-	const byImageName = labelFor(consumer.name);
+	const byImageName = labelFor(consumer.name, true);
 
 	if (byImageName !== undefined) {
 		return byImageName;
@@ -176,7 +180,7 @@ const agentLabelOf = (
 
 	const argv0 = argv0Of();
 
-	return argv0 === undefined || argv0 === consumer.name ? undefined : labelFor(argv0);
+	return argv0 === undefined || argv0 === consumer.name ? undefined : labelFor(argv0, false);
 };
 
 const relayCommandLinesOf = (
