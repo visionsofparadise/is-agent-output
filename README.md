@@ -37,36 +37,44 @@ interface Detection {
 }
 ```
 
-`isAgentOutput` is true when all three hold:
+`isAgentOutput` is true when both hold:
 
-1. stdout is not a tty
-2. the first non-relay ancestor matches a [known harness](#harnesses), or a pattern you passed in
-3. no pipe or redirect sits between this process and the harness, only [known relays](#relays), which pass output straight through
+1. the first non-relay ancestor matches a [known harness](#harnesses), or a pattern you passed in
+2. no pipe or redirect sits between this process and the harness, only [known relays](#relays), which pass output straight through
 
 Following these rules ensures any other consumers, such as piping or file writes, are not taken as agent output. It defaults to false in unclear or mixed scenarios.
 
+One exception to that default. When your output goes to a terminal on Windows, nothing tells the package which terminal it is, so it reads the surrounding commands instead. A redirect written in a form it does not recognise answers true there.
+
 ### Harnesses
 
-A harness is in the table when the command's stdout provably reaches the model alone.
+A harness is in the table when the command's output reaches a model, and reaches nothing that a change in the output would break. Someone reading along is not something that breaks; a program parsing the output is.
 
 | Harness           | Harness            | Harness          |
 | ----------------- | ------------------ | ---------------- |
-| Amp               | Factory Droid      | Mistral Vibe     |
-| Auggie            | Forge              | Nanocoder        |
-| Claude Code       | Freebuff           | oh-my-pi         |
-| Claude Desktop    | Gemini CLI         | opencode         |
-| Cline             | GitHub Copilot CLI | opencode desktop |
-| Codex             | goose              | Open Interpreter |
-| Codex desktop app | goose desktop      | OpenHands        |
-| CodeWhale         | gptme              | Pi               |
-| Continue          | Grok CLI           | Qoder            |
-| Crush             | Kilo Code          | Qwen Code        |
-| DeepSeek dsh      | Kimchi             | Reasonix         |
-| Docker Agent      | Kimi CLI           | Reasonix desktop |
-| Docker Desktop    | Letta Code         | senpi            |
-| Every Code        | mini-swe-agent     |                  |
+| Aider ¹           | Every Code         | Mistral Vibe     |
+| Amp               | Factory Droid      | Nanocoder        |
+| Auggie            | Forge              | oh-my-pi         |
+| Claude Code       | Freebuff           | opencode         |
+| Claude Desktop    | Gemini CLI         | opencode desktop |
+| Cline             | GitHub Copilot CLI | Open Interpreter |
+| Codex             | goose              | OpenHands        |
+| Codex desktop app | goose desktop      | Pi               |
+| CodeWhale         | gptme              | Qoder            |
+| Continue          | Grok CLI           | Qwen Code        |
+| Crush             | Kilo Code          | Reasonix         |
+| Cursor CLI        | Kimchi             | Reasonix desktop |
+| DeepSeek dsh      | Kimi CLI           | senpi            |
+| Docker Agent      | Letta Code         | SWE-agent ²      |
+| Docker Desktop    | mini-swe-agent     | Warp ³           |
 
-IDE agents are not covered: Cline and Continue in VS Code, Copilot inside VS Code, Gemini Code Assist, and the Cursor, Zed, Windsurf, Trae, Kiro, Devin and Junie agents all print output into a terminal panel in the editor, where you read it too.
+¹ Aider is recognised where its own installer puts it. Some Python installations put it somewhere the package cannot recognise, and it answers false there.
+
+² SWE-agent is recognised when it runs your command on the same machine. Its default mode runs commands inside a container, where nothing identifies SWE-agent as the caller.
+
+³ Warp is a terminal, so a command you typed yourself counts the same as one its agent ran. On Windows the answer may be false; that case is untested.
+
+Agents running inside an editor are not covered: Cline, Continue, Copilot and Gemini Code Assist in VS Code, and the Cursor, Zed, Windsurf, Trae, Kiro, Devin and Junie agents. The editor launches everything you run in it, your linters and formatters included, so nothing tells a command its agent ran from one an extension ran. Cursor's CLI, which runs on its own, is covered.
 
 ### Relays
 
@@ -76,7 +84,7 @@ The walk skips relays and takes the first ancestor that is not one as the consum
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | shells                | `bash`, `sh`, `dash`, `zsh`, `ash`, `ksh`, `mksh`, `fish`, `elvish`, `cmd`, `powershell`, `pwsh`                                                                  |
 | launchers             | `env`, `nice`, `nohup`, `timeout`, `stdbuf`, `chroot`, `ionice`, `chrt`, `taskset`                                                                                |
-| sandbox wrappers      | `bwrap`, `apply-seccomp`, `sandbox-exec`, and the wrappers Cursor, Gemini CLI, and Codex ship                                                                     |
+| sandbox wrappers      | `bwrap`, `apply-seccomp`, `sandbox-exec`, and the wrappers Claude Code, Cursor, Gemini CLI, Codex, and VS Code ship                                               |
 | package runners       | `npm run`, `npx`, `pnpm`, `yarn`, `node --run`, `bun run`, `deno task`, `uv`, `uvx`, `pipx`, `poetry`, `pdm`, `cargo`, `go`, `dotnet`, `tsx`, `ts-node`, `direnv` |
 
 ## Extra harnesses and relays
