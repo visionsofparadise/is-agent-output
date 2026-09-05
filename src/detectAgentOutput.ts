@@ -17,7 +17,7 @@ export interface DetectAgentOutputOptions {
 	readonly provider?: Provider;
 }
 
-type MediatableSink = Extract<StdoutSink, { readonly kind: "stream" | "file" }>;
+type MediatableSink = Extract<StdoutSink, { readonly kind: "stream" | "file" | "tty" }>;
 
 type CommandLineOf = (pid: number) => string | undefined;
 
@@ -28,6 +28,9 @@ const HIDDEN_REDIRECT_TARGET = /(?<![=<>-])\d?>>?[|&]?\s*["']?[^"'\s]*[$`%!]/;
 const SOURCED_SCRIPT = /(?:\bsource\b|(?<=^|[\s;&|(])\.)\s+["']?[^\s"';&|]*\.(?:bat|cmd|ps1|sh)\b/gi;
 
 const INVOKED_SCRIPT = /[^\s"';&|]*\.(?:bat|cmd|ps1|sh)\b/i;
+
+const TERMINAL_REDIRECT =
+	/(?<![=<>-])\d?>>?[|&]?\s*["']?(?:\/dev\/(?:tty|pts\/|console)|con(?:out\$)?(?=["'\s]|$)|\\\\\.\\)/i;
 
 const invokesScript = (commandLine: string): boolean => INVOKED_SCRIPT.test(commandLine.replaceAll(SOURCED_SCRIPT, ""));
 
@@ -163,6 +166,25 @@ const agentLabelOf = (
 	return undefined;
 };
 
+const relayCommandLinesOf = (
+	relays: ReadonlyArray<RelayFrame>,
+	commandLineOf: CommandLineOf,
+): ReadonlyArray<string> | undefined => {
+	const commandLines: Array<string> = [];
+
+	for (const relay of relays) {
+		const commandLine = commandLineOf(relay.info.pid);
+
+		if (commandLine === undefined) {
+			return undefined;
+		}
+
+		commandLines.push(commandLine);
+	}
+
+	return commandLines;
+};
+
 const sinkIsUnmediated = (
 	sink: MediatableSink,
 	ancestry: ResolvedAncestry,
@@ -206,6 +228,55 @@ const sinkIsUnmediated = (
 		return { unmediated: false, reason: "authored stream" };
 	}
 
+	if (sink.kind === "tty") {
+		const relayCommandLines = relayCommandLinesOf(relays, commandLineOf);
+
+		if (relayCommandLines === undefined) {
+			return { unmediated: false, reason: "unresolvable relay command line" };
+		}
+
+		const namesATerminal = (commandLine: string): boolean =>
+			TERMINAL_REDIRECT.test(commandLine) || HIDDEN_REDIRECT_TARGET.test(commandLine) || invokesScript(commandLine);
+
+		if (relayCommandLines.some(namesATerminal)) {
+			return { unmediated: false, reason: "authored terminal" };
+		}
+
+		if (relays.some((relay) => !relay.attests)) {
+			return { unmediated: false, reason: "terminal owned by a runner" };
+		}
+
+		if (sink.identity === undefined) {
+			return { unmediated: true, reason: "" };
+		}
+
+		const consumerTerminal = provider.fd1IdentityOf(consumer.pid);
+
+		if (consumerTerminal === undefined) {
+			return { unmediated: false, reason: "unreadable consumer fd 1" };
+		}
+
+		if (consumerTerminal === sink.identity) {
+			return { unmediated: false, reason: "authored terminal" };
+		}
+
+		if (outermost === undefined) {
+			return { unmediated: true, reason: "" };
+		}
+
+		const inheritedTerminal = provider.fd1IdentityOf(outermost.info.pid);
+
+		if (inheritedTerminal === undefined) {
+			return { unmediated: false, reason: "unreadable relay fd 1" };
+		}
+
+		if (inheritedTerminal !== sink.identity) {
+			return { unmediated: false, reason: "authored terminal" };
+		}
+
+		return { unmediated: true, reason: "" };
+	}
+
 	if (outermost === undefined) {
 		return { unmediated: false, reason: "file sink with no surviving relay" };
 	}
@@ -214,16 +285,10 @@ const sinkIsUnmediated = (
 		return { unmediated: false, reason: "file sink attested by a runner" };
 	}
 
-	const commandLines: Array<string> = [];
+	const commandLines = relayCommandLinesOf(relays, commandLineOf);
 
-	for (const relay of relays) {
-		const commandLine = commandLineOf(relay.info.pid);
-
-		if (commandLine === undefined) {
-			return { unmediated: false, reason: "unresolvable relay command line" };
-		}
-
-		commandLines.push(commandLine);
+	if (commandLines === undefined) {
+		return { unmediated: false, reason: "unresolvable relay command line" };
 	}
 
 	const sinkBasename = basenameOf(sink.path).toLowerCase();
@@ -263,10 +328,6 @@ const detectWith = (
 	relays: ReadonlyArray<RelayPattern>,
 ): Detection => {
 	const sink = provider.stdoutSinkOf();
-
-	if (sink.kind === "tty") {
-		return { isAgentOutput: false, reason: "stdout is a tty" };
-	}
 
 	if (sink.kind === "unknown") {
 		const supported = provider.processInfoOf(process.pid) !== undefined;

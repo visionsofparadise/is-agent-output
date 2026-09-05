@@ -20,7 +20,7 @@ itLinux("stdoutSinkOf classifies whatever its own fd 1 is", () => {
 	const sink = linuxProvider.stdoutSinkOf();
 
 	if (process.stdout.isTTY) {
-		expect(sink).toEqual({ kind: "tty" });
+		expect(sink).toEqual({ kind: "tty", identity: readlinkSync("/proc/self/fd/1") });
 
 		return;
 	}

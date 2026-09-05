@@ -66,16 +66,155 @@ const fakeProviderOf = (args: {
 const selfOn = (parentPid: number, commandLine = "node test"): FakeProcess =>
 	processOf(process.pid, parentPid, "node", commandLine);
 
-it("returns false when stdout is a tty", () => {
+const minttyPid = 1003;
+const ttyCmdPid = 1004;
+const ttyRunnerPid = 1005;
+const harnessTerminal = "/dev/pts/3";
+const userTerminal = "/dev/pts/1";
+
+it("returns true for a terminal the harness spawned the command onto", () => {
 	const detection = detectAgentOutput({
 		provider: fakeProviderOf({
 			tree: [selfOn(claudePid), processOf(claudePid, 1, "claude", "claude.exe")],
-			sink: { kind: "tty" },
+			sink: { kind: "tty", identity: harnessTerminal },
+			fd1: { [claudePid]: userTerminal },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("returns false for a terminal under a consumer that is no harness", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, minttyPid, "bash", "bash -l"),
+				processOf(minttyPid, 1, "mintty", "mintty -i /Cygwin-Terminal.ico -"),
+			],
+			sink: { kind: "tty", identity: harnessTerminal },
 		}),
 	});
 
 	expect(detection.isAgentOutput).toBe(false);
-	expect(detection.reason).toBe("stdout is a tty");
+	expect(detection.reason).toBe("consumer mintty matched no agent pattern");
+});
+
+it("returns false for the terminal the harness itself writes to", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [selfOn(claudePid), processOf(claudePid, 1, "claude", "claude.exe")],
+			sink: { kind: "tty", identity: harnessTerminal },
+			fd1: { [claudePid]: harnessTerminal },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.consumer?.label).toBe("claude");
+	expect(detection.reason).toBe("authored terminal");
+});
+
+it("returns false for a terminal a package runner below the outermost relay could own", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(ttyRunnerPid),
+				processOf(ttyRunnerPid, bashPid, "npm run build", "npm run build"),
+				processOf(bashPid, claudePid, "bash", "bash -c npm run build"),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "tty", identity: harnessTerminal },
+			fd1: { [claudePid]: userTerminal, [bashPid]: harnessTerminal },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.consumer?.label).toBe("claude");
+	expect(detection.reason).toBe("terminal owned by a runner");
+});
+
+it("returns true for a terminal the outermost relay inherited", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, claudePid, "bash", "bash -c probe"),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "tty", identity: harnessTerminal },
+			fd1: { [claudePid]: userTerminal, [bashPid]: harnessTerminal },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("returns false for a terminal the outermost relay did not inherit", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, claudePid, "bash", "bash -c probe"),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "tty", identity: "/dev/pts/9" },
+			fd1: { [claudePid]: userTerminal, [bashPid]: harnessTerminal },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("authored terminal");
+});
+
+it("returns false for a relay command line redirecting to /dev/tty", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, claudePid, "bash", "bash -c probe > /dev/tty"),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "tty", identity: harnessTerminal },
+			fd1: { [claudePid]: userTerminal, [bashPid]: harnessTerminal },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("authored terminal");
+});
+
+it("returns false for a relay command line redirecting to CONOUT$", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(ttyCmdPid),
+				processOf(ttyCmdPid, claudePid, "cmd", 'cmd.exe /d /s /c "probe > CONOUT$"'),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "tty", identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("authored terminal");
+});
+
+it("returns true for a windows console the provider names no device for", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(ttyCmdPid),
+				processOf(ttyCmdPid, claudePid, "cmd", 'cmd.exe /d /s /c "probe"'),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "tty", identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
 });
 
 it("returns true for a harness capture stream owned by claude.exe", () => {

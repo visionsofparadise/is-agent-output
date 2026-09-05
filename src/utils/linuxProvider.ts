@@ -5,6 +5,14 @@ const procPathOf = (pid: number, leaf: string): string => `/proc/${pid}/${leaf}`
 
 const isPid = (pid: number): boolean => Number.isInteger(pid) && pid > 0;
 
+const linkOf = (path: string): string | undefined => {
+	try {
+		return readlinkSync(path);
+	} catch {
+		return undefined;
+	}
+};
+
 const parentPidOf = (stat: string): number | undefined => {
 	const closeParen = stat.lastIndexOf(")");
 
@@ -59,20 +67,20 @@ const commandLineOf = (pid: number): string | undefined => {
 
 const stdoutSinkOf = (): StdoutSink => {
 	if (process.stdout.isTTY) {
-		return { kind: "tty" };
+		return { kind: "tty", identity: linkOf("/proc/self/fd/1") };
 	}
 
-	try {
-		const identity = readlinkSync("/proc/self/fd/1");
+	const identity = linkOf("/proc/self/fd/1");
 
-		if (identity.startsWith("/")) {
-			return { kind: "file", path: identity };
-		}
-
-		return { kind: "stream", serverPid: undefined, identity };
-	} catch {
+	if (identity === undefined) {
 		return { kind: "unknown" };
 	}
+
+	if (identity.startsWith("/")) {
+		return { kind: "file", path: identity };
+	}
+
+	return { kind: "stream", serverPid: undefined, identity };
 };
 
 const fd1IdentityOf = (pid: number): string | undefined => {
@@ -80,11 +88,7 @@ const fd1IdentityOf = (pid: number): string | undefined => {
 		return undefined;
 	}
 
-	try {
-		return readlinkSync(procPathOf(pid, "fd/1"));
-	} catch {
-		return undefined;
-	}
+	return linkOf(procPathOf(pid, "fd/1"));
 };
 
 export const linuxProvider: Provider = {

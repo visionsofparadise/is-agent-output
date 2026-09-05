@@ -5,7 +5,7 @@ export interface ProcessInfo {
 }
 
 export type StdoutSink =
-	| { readonly kind: "tty" }
+	| { readonly kind: "tty"; readonly identity?: string | undefined }
 	| { readonly kind: "stream"; readonly serverPid: number | undefined; readonly identity: string | undefined }
 	| { readonly kind: "file"; readonly path: string }
 	| { readonly kind: "unknown" };

@@ -21,6 +21,16 @@ itWindows("stdoutSinkOf returns a non-unknown kind under the test runner", () =>
 	expect(sink.kind).not.toBe("unknown");
 });
 
+itWindows("stdoutSinkOf carries no terminal identity, since Windows names no device for a console handle", () => {
+	const sink = windowsProvider.stdoutSinkOf();
+
+	if (sink.kind !== "tty") {
+		return;
+	}
+
+	expect(sink.identity).toBeUndefined();
+});
+
 itWindows("processInfoOf(-1) returns undefined", () => {
 	expect(windowsProvider.processInfoOf(-1)).toBeUndefined();
 });

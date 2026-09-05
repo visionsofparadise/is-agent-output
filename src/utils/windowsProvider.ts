@@ -292,7 +292,7 @@ const loadWindowsApi = (): WindowsApi => {
 
 	const stdoutSinkOf = (): StdoutSink => {
 		if (process.stdout.isTTY) {
-			return { kind: "tty" };
+			return { kind: "tty", identity: undefined };
 		}
 
 		const stdoutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -304,7 +304,7 @@ const loadWindowsApi = (): WindowsApi => {
 		const fileType = GetFileType(stdoutHandle) & ~FILE_TYPE_REMOTE;
 
 		if (fileType === FILE_TYPE_CHAR) {
-			return { kind: "tty" };
+			return { kind: "tty", identity: undefined };
 		}
 
 		if (fileType === FILE_TYPE_PIPE) {
