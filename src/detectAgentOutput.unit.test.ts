@@ -115,7 +115,7 @@ it("returns false for the terminal the harness itself writes to", () => {
 	expect(detection.reason).toBe("authored terminal");
 });
 
-it("returns false for a terminal a package runner below the outermost relay could own", () => {
+it("returns true for a terminal reached through a package runner, which allocates none", () => {
 	const detection = detectAgentOutput({
 		provider: fakeProviderOf({
 			tree: [
@@ -129,9 +129,21 @@ it("returns false for a terminal a package runner below the outermost relay coul
 		}),
 	});
 
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("claude");
+});
+
+it("returns false for a terminal under a consumer whose own fd 1 is unreadable", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [selfOn(claudePid), processOf(claudePid, 1, "claude", "claude.exe")],
+			sink: { kind: "tty", identity: harnessTerminal },
+		}),
+	});
+
 	expect(detection.isAgentOutput).toBe(false);
 	expect(detection.consumer?.label).toBe("claude");
-	expect(detection.reason).toBe("terminal owned by a runner");
+	expect(detection.reason).toBe("unreadable consumer fd 1");
 });
 
 it("returns true for a terminal the outermost relay inherited", () => {
@@ -191,6 +203,22 @@ it("returns false for a relay command line redirecting to CONOUT$", () => {
 			tree: [
 				selfOn(ttyCmdPid),
 				processOf(ttyCmdPid, claudePid, "cmd", 'cmd.exe /d /s /c "probe > CONOUT$"'),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "tty", identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("authored terminal");
+});
+
+it("returns false for a relay command line redirecting to the DOS device CON:", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(ttyCmdPid),
+				processOf(ttyCmdPid, claudePid, "cmd", 'cmd.exe /d /s /c "probe > CON:"'),
 				processOf(claudePid, 1, "claude", "claude.exe"),
 			],
 			sink: { kind: "tty", identity: undefined },

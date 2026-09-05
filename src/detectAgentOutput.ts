@@ -30,7 +30,7 @@ const SOURCED_SCRIPT = /(?:\bsource\b|(?<=^|[\s;&|(])\.)\s+["']?[^\s"';&|]*\.(?:
 const INVOKED_SCRIPT = /[^\s"';&|]*\.(?:bat|cmd|ps1|sh)\b/i;
 
 const TERMINAL_REDIRECT =
-	/(?<![=<>-])\d?>>?[|&]?\s*["']?(?:\/dev\/(?:tty|pts\/|console)|con(?:out\$)?(?=["'\s]|$)|\\\\\.\\)/i;
+	/(?<![=<>-])\d?>>?[|&]?\s*["']?(?:\/dev\/(?:tty|pts\/|console)|con(?:out\$)?:?(?=["'\s]|$)|\\\\\.\\)/i;
 
 const invokesScript = (commandLine: string): boolean => INVOKED_SCRIPT.test(commandLine.replaceAll(SOURCED_SCRIPT, ""));
 
@@ -240,10 +240,6 @@ const sinkIsUnmediated = (
 
 		if (relayCommandLines.some(namesATerminal)) {
 			return { unmediated: false, reason: "authored terminal" };
-		}
-
-		if (relays.some((relay) => !relay.attests)) {
-			return { unmediated: false, reason: "terminal owned by a runner" };
 		}
 
 		if (sink.identity === undefined) {
