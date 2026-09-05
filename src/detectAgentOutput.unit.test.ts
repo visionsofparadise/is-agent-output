@@ -1369,7 +1369,7 @@ it("resolves the nearer claude when claude desktop hosts the bundled cli", () =>
 	expect(detection.consumer?.label).toBe("claude");
 });
 
-it("returns false for an excluded harness above an admitted sandbox relay", () => {
+it("returns true for cursor-agent above its own sandbox relay", () => {
 	const detection = detectAgentOutput({
 		provider: fakeProviderOf({
 			tree: [
@@ -1388,9 +1388,9 @@ it("returns false for an excluded harness above an admitted sandbox relay", () =
 		}),
 	});
 
-	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.isAgentOutput).toBe(true);
 	expect(detection.consumer?.name).toBe("node");
-	expect(detection.reason).toBe("consumer node matched no agent pattern");
+	expect(detection.consumer?.label).toBe("cursor-agent");
 });
 
 it("matches a harness by the name it presents in argv[0]", () => {

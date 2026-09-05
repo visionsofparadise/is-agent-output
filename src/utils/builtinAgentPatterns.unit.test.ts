@@ -40,6 +40,9 @@ const samples: ReadonlyArray<Sample> = [
 	{ label: "forge-npm", name: "forge-x86_64-un" },
 	{ label: "mini-swe-agent-posix", name: "mini" },
 	{ label: "gptme-posix", name: "gptme" },
+	{ label: "warp", name: "warp-terminal" },
+	{ label: "aider-posix", name: "aider" },
+	{ label: "swe-agent-posix", name: "sweagent" },
 	{
 		label: "claude-code-node",
 		name: "node",
@@ -86,6 +89,14 @@ const samples: ReadonlyArray<Sample> = [
 	},
 	{ label: "mini-swe-agent-windows", name: "python", commandLine: "C:\\Users\\m\\.venv\\Scripts\\mini.exe" },
 	{ label: "gptme-windows", name: "python", commandLine: "C:\\Users\\m\\.venv\\Scripts\\gptme.exe" },
+	{
+		label: "cursor-agent",
+		name: "node",
+		commandLine:
+			"/home/m/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/node --use-system-ca /home/m/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/index.js",
+	},
+	{ label: "aider-windows", name: "python", commandLine: '"C:\\Users\\m\\.local\\bin\\aider.exe" --model gpt-5' },
+	{ label: "swe-agent-windows", name: "python", commandLine: "C:\\Users\\m\\.venv\\Scripts\\sweagent.exe run" },
 ];
 
 const matchesRegex = (pattern: RegExp, value: string): boolean => {

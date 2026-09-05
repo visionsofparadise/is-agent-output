@@ -37,6 +37,9 @@ export const builtinAgentPatterns: ReadonlyArray<AgentPattern> = [
 	{ label: "forge-npm", name: /^forge-(x86_64|aarch64)-[a-z0-9._-]*$/ },
 	{ label: "mini-swe-agent-posix", name: /^mini(-swe-agent)?$/ },
 	{ label: "gptme-posix", name: /^gptme$/ },
+	{ label: "warp", name: /^warp(-terminal)?$/ },
+	{ label: "aider-posix", name: /^aider$/ },
+	{ label: "swe-agent-posix", name: /^sweagent$/ },
 	{
 		label: "claude-code-node",
 		name: /^node$/,
@@ -126,5 +129,20 @@ export const builtinAgentPatterns: ReadonlyArray<AgentPattern> = [
 		label: "gptme-windows",
 		name: /^python$/,
 		commandLine: /[\\/]gptme(\.exe)?$/,
+	},
+	{
+		label: "cursor-agent",
+		name: /^node$/,
+		commandLine: /[\\/]cursor-agent[\\/]versions[\\/]/,
+	},
+	{
+		label: "aider-windows",
+		name: /^python$/,
+		commandLine: /[\\/]aider\.exe/,
+	},
+	{
+		label: "swe-agent-windows",
+		name: /^python$/,
+		commandLine: /[\\/]sweagent\.exe/,
 	},
 ];
