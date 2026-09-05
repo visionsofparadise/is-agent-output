@@ -48,7 +48,7 @@ One exception to that default. When your output goes to a terminal on Windows, n
 
 ### Harnesses
 
-A harness is in the table when the command's output reaches a model, and reaches nothing that a change in the output would break. Someone reading along is not something that breaks; a program parsing the output is.
+A harness is in the table when the command's output reaches a model, and reaches nothing that a change in the output would break.
 
 | Harness           | Harness            | Harness          |
 | ----------------- | ------------------ | ---------------- |
@@ -66,15 +66,13 @@ A harness is in the table when the command's output reaches a model, and reaches
 | Cursor CLI        | Kimchi             | Reasonix desktop |
 | DeepSeek dsh      | Kimi CLI           | senpi            |
 | Docker Agent      | Letta Code         | SWE-agent ²      |
-| Docker Desktop    | mini-swe-agent     | Warp ³           |
+| Docker Desktop    | mini-swe-agent     | Warp             |
 
 ¹ Aider is recognised where its own installer puts it. Some Python installations put it somewhere the package cannot recognise, and it answers false there.
 
 ² SWE-agent is recognised when it runs your command on the same machine. Its default mode runs commands inside a container, where nothing identifies SWE-agent as the caller.
 
-³ Warp is a terminal, so a command you typed yourself counts the same as one its agent ran. On Windows the answer may be false; that case is untested.
-
-Agents running inside an editor are not covered: Cline, Continue, Copilot and Gemini Code Assist in VS Code, and the Cursor, Zed, Windsurf, Trae, Kiro, Devin and Junie agents. The editor launches everything you run in it, your linters and formatters included, so nothing tells a command its agent ran from one an extension ran. Cursor's CLI, which runs on its own, is covered.
+Agents running inside an editor are not covered: Cline, Continue, Copilot and Gemini Code Assist in VS Code, and the Cursor, Zed, Windsurf, Trae, Kiro, Devin and Junie agents. The editor launches everything you run in it, your linters and formatters included, so nothing tells a command its agent ran from one an extension ran.
 
 ### Relays
 
