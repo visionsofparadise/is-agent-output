@@ -42,3 +42,7 @@ itWindows("commandLineOf resolves the current process command line", () => {
 itWindows("commandLineOf(-1) returns undefined", () => {
 	expect(windowsProvider.commandLineOf(-1)).toBeUndefined();
 });
+
+itWindows("argv0Of is undefined, since the provider reads the image name", () => {
+	expect(windowsProvider.argv0Of?.(process.pid)).toBeUndefined();
+});

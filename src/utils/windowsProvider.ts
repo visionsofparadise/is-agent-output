@@ -378,5 +378,6 @@ export const windowsProvider: Provider = {
 			return { kind: "unknown" };
 		}
 	},
+	argv0Of: (_pid: number): string | undefined => undefined,
 	fd1IdentityOf: (_pid: number): string | undefined => undefined,
 };

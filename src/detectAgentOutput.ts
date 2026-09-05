@@ -19,7 +19,7 @@ export interface DetectAgentOutputOptions {
 
 type MediatableSink = Extract<StdoutSink, { readonly kind: "stream" | "file" | "tty" }>;
 
-type CommandLineOf = (pid: number) => string | undefined;
+type PerPidRead = (pid: number) => string | undefined;
 
 const WALK_BOUND = 32;
 
@@ -42,7 +42,7 @@ const matchesRegex = (pattern: RegExp, value: string): boolean => {
 	return new RegExp(pattern.source, pattern.flags.replaceAll("g", "").replaceAll("y", "")).test(value);
 };
 
-const memoizedCommandLineOf = (provider: Provider): CommandLineOf => {
+const memoized = (of: PerPidRead): PerPidRead => {
 	const read = new Map<number, string | undefined>();
 
 	return (pid: number): string | undefined => {
@@ -50,18 +50,18 @@ const memoizedCommandLineOf = (provider: Provider): CommandLineOf => {
 			return read.get(pid);
 		}
 
-		const commandLine = provider.commandLineOf(pid);
+		const value = of(pid);
 
-		read.set(pid, commandLine);
+		read.set(pid, value);
 
-		return commandLine;
+		return value;
 	};
 };
 
 const relayMatches = (
 	info: ProcessInfo,
 	relays: ReadonlyArray<RelayPattern>,
-	commandLineOf: CommandLineOf,
+	commandLineOf: PerPidRead,
 ): RelayPattern | undefined => {
 	for (const pattern of relays) {
 		if (!matchesRegex(pattern.name, info.name)) {
@@ -100,7 +100,7 @@ const ancestryOf = (
 	provider: Provider,
 	startPid: number,
 	relays: ReadonlyArray<RelayPattern>,
-	commandLineOf: CommandLineOf,
+	commandLineOf: PerPidRead,
 ): Ancestry => {
 	const seen = new Set<number>([startPid]);
 	const frames: Array<RelayFrame> = [];
@@ -140,35 +140,48 @@ const agentLabelOf = (
 	consumer: ProcessInfo,
 	agents: ReadonlyArray<AgentPattern>,
 	commandLineOf: () => string | undefined,
+	argv0Of: () => string | undefined,
 ): string | undefined => {
 	let commandLine: string | undefined;
 	let commandLineRead = false;
 
-	for (const pattern of agents) {
-		if (!matchesRegex(pattern.name, consumer.name)) {
-			continue;
-		}
-
-		if (pattern.commandLine !== undefined) {
-			if (!commandLineRead) {
-				commandLine = commandLineOf();
-				commandLineRead = true;
-			}
-
-			if (commandLine === undefined || !matchesRegex(pattern.commandLine, commandLine)) {
+	const labelFor = (name: string): string | undefined => {
+		for (const pattern of agents) {
+			if (!matchesRegex(pattern.name, name)) {
 				continue;
 			}
+
+			if (pattern.commandLine !== undefined) {
+				if (!commandLineRead) {
+					commandLine = commandLineOf();
+					commandLineRead = true;
+				}
+
+				if (commandLine === undefined || !matchesRegex(pattern.commandLine, commandLine)) {
+					continue;
+				}
+			}
+
+			return pattern.label;
 		}
 
-		return pattern.label;
+		return undefined;
+	};
+
+	const byImageName = labelFor(consumer.name);
+
+	if (byImageName !== undefined) {
+		return byImageName;
 	}
 
-	return undefined;
+	const argv0 = argv0Of();
+
+	return argv0 === undefined || argv0 === consumer.name ? undefined : labelFor(argv0);
 };
 
 const relayCommandLinesOf = (
 	relays: ReadonlyArray<RelayFrame>,
-	commandLineOf: CommandLineOf,
+	commandLineOf: PerPidRead,
 ): ReadonlyArray<string> | undefined => {
 	const commandLines: Array<string> = [];
 
@@ -189,7 +202,7 @@ const sinkIsUnmediated = (
 	sink: MediatableSink,
 	ancestry: ResolvedAncestry,
 	provider: Provider,
-	commandLineOf: CommandLineOf,
+	commandLineOf: PerPidRead,
 ): { readonly unmediated: boolean; readonly reason: string } => {
 	const { consumer, relays } = ancestry;
 	const outermost = relays.at(-1);
@@ -331,7 +344,8 @@ const detectWith = (
 		return { isAgentOutput: false, reason: supported ? "unknown stdout sink" : "unsupported platform" };
 	}
 
-	const commandLineOf = memoizedCommandLineOf(provider);
+	const commandLineOf = memoized((pid: number) => provider.commandLineOf(pid));
+	const argv0Of = memoized((pid: number) => provider.argv0Of?.(pid));
 	const ancestry = ancestryOf(provider, process.pid, relays, commandLineOf);
 
 	if ("failure" in ancestry) {
@@ -339,7 +353,12 @@ const detectWith = (
 	}
 
 	const consumer = ancestry.consumer;
-	const label = agentLabelOf(consumer, agents, () => commandLineOf(consumer.pid));
+	const label = agentLabelOf(
+		consumer,
+		agents,
+		() => commandLineOf(consumer.pid),
+		() => argv0Of(consumer.pid),
+	);
 
 	if (label === undefined) {
 		return {

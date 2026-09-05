@@ -51,3 +51,11 @@ itLinux("commandLineOf resolves the current process command line", () => {
 itLinux("commandLineOf(-1) returns undefined", () => {
 	expect(linuxProvider.commandLineOf(-1)).toBeUndefined();
 });
+
+itLinux("argv0Of resolves the name the current process presents", () => {
+	expect(linuxProvider.argv0Of?.(process.pid)).toContain("node");
+});
+
+itLinux("argv0Of(-1) returns undefined", () => {
+	expect(linuxProvider.argv0Of?.(-1)).toBeUndefined();
+});

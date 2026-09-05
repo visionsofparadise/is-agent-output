@@ -65,6 +65,21 @@ const commandLineOf = (pid: number): string | undefined => {
 	}
 };
 
+const argv0Of = (pid: number): string | undefined => {
+	if (!isPid(pid)) {
+		return undefined;
+	}
+
+	try {
+		const argv0 = readFileSync(procPathOf(pid, "cmdline"), "utf8").split("\0")[0] ?? "";
+		const name = argv0.slice(argv0.lastIndexOf("/") + 1).toLowerCase();
+
+		return name.length > 0 ? name : undefined;
+	} catch {
+		return undefined;
+	}
+};
+
 const stdoutSinkOf = (): StdoutSink => {
 	if (process.stdout.isTTY) {
 		return { kind: "tty", identity: linkOf("/proc/self/fd/1") };
@@ -94,6 +109,7 @@ const fd1IdentityOf = (pid: number): string | undefined => {
 export const linuxProvider: Provider = {
 	processInfoOf,
 	commandLineOf,
+	argv0Of,
 	stdoutSinkOf,
 	fd1IdentityOf,
 };

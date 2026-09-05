@@ -12,6 +12,7 @@ const extraPid = 4001;
 interface FakeProcess {
 	readonly info: ProcessInfo;
 	readonly commandLine: string | undefined;
+	readonly argv0?: string;
 }
 
 const processOf = (pid: number, ppid: number | undefined, name: string, commandLine?: string): FakeProcess => ({
@@ -19,16 +20,24 @@ const processOf = (pid: number, ppid: number | undefined, name: string, commandL
 	commandLine,
 });
 
+const presentingAs = (process: FakeProcess, argv0: string): FakeProcess => ({ ...process, argv0 });
+
 const commandLineReads = vi.fn<(pid: number) => void>();
+const argv0Reads = vi.fn<(pid: number) => void>();
 
 beforeEach(() => {
 	commandLineReads.mockClear();
+	argv0Reads.mockClear();
 });
 
 afterEach(() => {
 	const pids = commandLineReads.mock.calls.map(([pid]) => pid);
 
 	expect(new Set(pids).size).toBe(pids.length);
+
+	const argv0Pids = argv0Reads.mock.calls.map(([pid]) => pid);
+
+	expect(new Set(argv0Pids).size).toBe(argv0Pids.length);
 });
 
 const fakeProviderOf = (args: {
@@ -51,6 +60,11 @@ const fakeProviderOf = (args: {
 			commandLineReads(pid);
 
 			return byPid.get(pid)?.commandLine;
+		},
+		argv0Of: (pid: number): string | undefined => {
+			argv0Reads(pid);
+
+			return byPid.get(pid)?.argv0;
 		},
 		stdoutSinkOf: (): StdoutSink => {
 			if (args.throws !== undefined) {
@@ -1377,4 +1391,76 @@ it("returns false for an excluded harness above an admitted sandbox relay", () =
 	expect(detection.isAgentOutput).toBe(false);
 	expect(detection.consumer?.name).toBe("node");
 	expect(detection.reason).toBe("consumer node matched no agent pattern");
+});
+
+it("matches a harness by the name it presents in argv[0]", () => {
+	const detection = detectAgentOutput({
+		agents: [{ label: "cursor-agent", name: /^cursor-agent$/ }],
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, cursorAgentPid, "bash", "bash -c probe"),
+				presentingAs(
+					processOf(cursorAgentPid, 1, "node", "/home/m/.local/share/cursor-agent/node index.js"),
+					"cursor-agent",
+				),
+			],
+			sink: { kind: "stream", serverPid: cursorAgentPid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.label).toBe("cursor-agent");
+	expect(argv0Reads).toHaveBeenCalledTimes(1);
+	expect(argv0Reads).toHaveBeenCalledWith(cursorAgentPid);
+});
+
+it("reads no argv[0] when the image name already matched", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, claudePid, "bash", "bash -c probe"),
+				presentingAs(processOf(claudePid, 1, "claude", "claude.exe"), "gemini"),
+			],
+			sink: { kind: "stream", serverPid: claudePid, identity: undefined },
+		}),
+	});
+
+	expect(detection.consumer?.label).toBe("claude");
+	expect(argv0Reads).not.toHaveBeenCalled();
+});
+
+it("skips a relay by its image name whatever argv[0] presents", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				presentingAs(processOf(bashPid, claudePid, "bash", "bash -c probe"), "claude"),
+				processOf(claudePid, 1, "claude", "claude.exe"),
+			],
+			sink: { kind: "stream", serverPid: claudePid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(true);
+	expect(detection.consumer?.pid).toBe(claudePid);
+	expect(argv0Reads).not.toHaveBeenCalledWith(bashPid);
+});
+
+it("returns false when neither the image name nor argv[0] names a harness", () => {
+	const detection = detectAgentOutput({
+		provider: fakeProviderOf({
+			tree: [
+				selfOn(bashPid),
+				processOf(bashPid, cursorAgentPid, "bash", "bash -c probe"),
+				presentingAs(processOf(cursorAgentPid, 1, "node", "node server.js"), "server"),
+			],
+			sink: { kind: "stream", serverPid: cursorAgentPid, identity: undefined },
+		}),
+	});
+
+	expect(detection.isAgentOutput).toBe(false);
+	expect(detection.reason).toBe("consumer node matched no agent pattern");
+	expect(argv0Reads).toHaveBeenCalledTimes(1);
 });
