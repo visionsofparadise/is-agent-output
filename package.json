@@ -9,9 +9,6 @@
 		},
 		"./package.json": "./package.json"
 	},
-	"bin": {
-		"is-agent-output": "./dist/cli.js"
-	},
 	"files": [
 		"dist"
 	],

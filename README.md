@@ -10,15 +10,6 @@ npm install is-agent-output
 
 ## Usage
 
-```sh
-is-agent-output        # exit 0 when true, 1 when false
-is-agent-output --json # print the Detection object
-```
-
-```sh
-is-agent-output [--json] [--agent <label>:<nameRegex>[:<commandLineRegex>]]... [--relay <nameRegex>[:<commandLineRegex>]]...
-```
-
 ```ts
 import { detectAgentOutput } from "is-agent-output";
 
@@ -92,10 +83,6 @@ detectAgentOutput({
 	agents: [{ label: "my-harness", name: /my-harness/, commandLine: /optional/ }],
 	relays: [{ name: /my-runner/, commandLine: /optional/, attests: false }],
 });
-```
-
-```sh
-is-agent-output --agent 'my-harness:my-harness[:commandLineRegex]' --relay 'my-relay[:commandLineRegex]'
 ```
 
 ## License
