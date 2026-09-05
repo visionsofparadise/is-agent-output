@@ -68,7 +68,7 @@ const samples: ReadonlyArray<Sample> = [
 	{
 		label: "openhands-python-windows",
 		name: "python",
-		commandLine: "C:\\Users\\m\\.venv\\Scripts\\openhands.exe",
+		commandLine: "C:\\Users\\m\\.local\\bin\\openhands.exe",
 	},
 	{
 		label: "nanocoder",
@@ -96,7 +96,6 @@ const samples: ReadonlyArray<Sample> = [
 			"/home/m/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/node --use-system-ca /home/m/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/index.js",
 	},
 	{ label: "aider-windows", name: "python", commandLine: '"C:\\Users\\m\\.local\\bin\\aider.exe" --model gpt-5' },
-	{ label: "swe-agent-windows", name: "python", commandLine: "C:\\Users\\m\\.venv\\Scripts\\sweagent.exe run" },
 ];
 
 const matchesRegex = (pattern: RegExp, value: string): boolean => {

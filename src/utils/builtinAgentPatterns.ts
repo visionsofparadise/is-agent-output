@@ -93,7 +93,7 @@ export const builtinAgentPatterns: ReadonlyArray<AgentPattern> = [
 	{
 		label: "openhands-python-windows",
 		name: /^python$/,
-		commandLine: /[\\/]Scripts[\\/]openhands(\.exe)?/,
+		commandLine: /[\\/]openhands\.exe/,
 	},
 	{
 		label: "nanocoder",
@@ -139,10 +139,5 @@ export const builtinAgentPatterns: ReadonlyArray<AgentPattern> = [
 		label: "aider-windows",
 		name: /^python$/,
 		commandLine: /[\\/]aider\.exe/,
-	},
-	{
-		label: "swe-agent-windows",
-		name: /^python$/,
-		commandLine: /[\\/]sweagent\.exe/,
 	},
 ];
