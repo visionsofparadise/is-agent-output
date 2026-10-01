@@ -1,17 +1,14 @@
 name: Publish Package
 
-on:
-   push:
-      branches: [main]
-      paths:
-         - "package.json"
-   workflow_dispatch:
+on: workflow_dispatch
 
 jobs:
    publish:
+      if: github.ref == 'refs/heads/main'
       runs-on: ubuntu-latest
       permissions:
          id-token: write
+         contents: write
       steps:
          - uses: actions/checkout@v4
 
@@ -20,8 +17,11 @@ jobs:
               node-version: "22"
               registry-url: "https://registry.npmjs.org"
 
-         - name: Upgrade npm for OIDC support
-           run: npm install -g npm@latest
+         - name: Pin npm 12
+           run: npm install -g npm@12
+
+         - name: Enforce install-script allowlist
+           run: npm config set strict-allow-scripts=true --location=project
 
          - name: Check if version is already published
            id: check
@@ -58,3 +58,10 @@ jobs:
          - name: Publish to NPM
            if: steps.check.outputs.skip == 'false'
            run: npm publish --access public
+
+         - name: Tag published version
+           if: steps.check.outputs.skip == 'false'
+           run: |
+              PACKAGE_VERSION=$(node -p "require('./package.json').version")
+              git tag "v$PACKAGE_VERSION"
+              git push origin "v$PACKAGE_VERSION"
